@@ -1,0 +1,156 @@
+import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit'
+import axios from 'axios'
+import Cookies from 'js-cookie'
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
+
+interface User {
+  id: string
+  name: string
+  email: string
+  phone?: string
+  state?: string
+  role_id: number
+  prn?: string
+  status?: string
+}
+
+interface AuthState {
+  user: User | null
+  token: string | null
+  isAuthenticated: boolean
+  loading: boolean
+  error: string | null
+}
+
+const initialState: AuthState = {
+  user: null,
+  token: Cookies.get('token') || null,
+  isAuthenticated: false,
+  loading: false,
+  error: null,
+}
+
+// Async thunks
+export const register = createAsyncThunk(
+  'auth/register',
+  async (userData: { name: string; email: string; phone: string; state: string; appointmentType?: string }) => {
+    const response = await axios.post(`${API_URL}/api/auth/register`, userData)
+    return response.data
+  }
+)
+
+export const login = createAsyncThunk(
+  'auth/login',
+  async (credentials: { email: string; password: string }) => {
+    const response = await axios.post(`${API_URL}/api/auth/login`, credentials)
+    const { token, user } = response.data
+    Cookies.set('token', token, { expires: 7 })
+    return { token, user }
+  }
+)
+
+export const getCurrentUser = createAsyncThunk(
+  'auth/getCurrentUser',
+  async (_, { getState }) => {
+    const state = getState() as { auth: AuthState }
+    const token = state.auth.token || Cookies.get('token')
+    
+    if (!token) {
+      throw new Error('No token available')
+    }
+
+    const response = await axios.get(`${API_URL}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    return response.data.user
+  }
+)
+
+export const verifyEmail = createAsyncThunk(
+  'auth/verifyEmail',
+  async (token: string) => {
+    const response = await axios.get(`${API_URL}/api/auth/verify-email?token=${token}`)
+    return response.data
+  }
+)
+
+export const setupPassword = createAsyncThunk(
+  'auth/setupPassword',
+  async (data: { token: string; password: string }) => {
+    const response = await axios.post(`${API_URL}/api/auth/setup-password`, data)
+    const { token, user } = response.data
+    Cookies.set('token', token, { expires: 7 })
+    return { token, user }
+  }
+)
+
+const authSlice = createSlice({
+  name: 'auth',
+  initialState,
+  reducers: {
+    logout: (state) => {
+      state.user = null
+      state.token = null
+      state.isAuthenticated = false
+      Cookies.remove('token')
+    },
+    clearError: (state) => {
+      state.error = null
+    },
+  },
+  extraReducers: (builder) => {
+    builder
+      // Register
+      .addCase(register.pending, (state) => {
+        state.loading = true
+        state.error = null
+      })
+      .addCase(register.fulfilled, (state) => {
+        state.loading = false
+      })
+      .addCase(register.rejected, (state, action) => {
+        state.loading = false
+        state.error = action.error.message || 'Registration failed'
+      })
+      // Login
+      .addCase(login.pending, (state) => {
+        state.loading = true
+        state.error = null
+      })
+      .addCase(login.fulfilled, (state, action) => {
+        state.loading = false
+        state.token = action.payload.token
+        state.user = action.payload.user
+        state.isAuthenticated = true
+      })
+      .addCase(login.rejected, (state, action) => {
+        state.loading = false
+        state.error = action.error.message || 'Login failed'
+      })
+      // Get current user
+      .addCase(getCurrentUser.pending, (state) => {
+        state.loading = true
+      })
+      .addCase(getCurrentUser.fulfilled, (state, action) => {
+        state.loading = false
+        state.user = action.payload
+        state.isAuthenticated = true
+      })
+      .addCase(getCurrentUser.rejected, (state) => {
+        state.loading = false
+        state.isAuthenticated = false
+        state.token = null
+        Cookies.remove('token')
+      })
+      // Setup password
+      .addCase(setupPassword.fulfilled, (state, action) => {
+        state.token = action.payload.token
+        state.user = action.payload.user
+        state.isAuthenticated = true
+      })
+  },
+})
+
+export const { logout, clearError } = authSlice.actions
+export default authSlice.reducer
