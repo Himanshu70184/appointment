@@ -1,0 +1,437 @@
+const express = require('express');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const { body, validationResult } = require('express-validator');
+const Appointment = require('../models/Appointment');
+const Payment = require('../models/Payment');
+const MedicalCard = require('../models/MedicalCard');
+const Doctor = require('../models/Doctor');
+const User = require('../models/User');
+const Notification = require('../models/Notification');
+const { auth, authorize } = require('../middleware/auth');
+const { processPayment } = require('../utils/payment');
+const { sendAppointmentNotification } = require('../utils/email');
+
+const router = express.Router();
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = process.env.UPLOAD_DIR || './uploads';
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: parseInt(process.env.MAX_FILE_SIZE) || 5242880 // 5MB
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|pdf/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Only image and PDF files are allowed'));
+    }
+  }
+});
+
+// @route   POST /api/appointments
+// @desc    Create new appointment with payment
+// @access  Private (Patient)
+router.post('/', [
+  auth,
+  authorize('patient'),
+  body('medicalCardType').notEmpty().withMessage('Medical card type is required'),
+  body('appointmentType').notEmpty().withMessage('Appointment type is required'),
+  body('payment').notEmpty().withMessage('Payment information is required')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { medicalCardType, appointmentType, payment: paymentData, couponCode } = req.body;
+
+    // Get medical card details
+    const medicalCard = await MedicalCard.findById(medicalCardType);
+    if (!medicalCard) {
+      return res.status(404).json({ message: 'Medical card type not found' });
+    }
+
+    // Calculate amount (apply coupon if provided)
+    let amount = medicalCard.price;
+    if (couponCode) {
+      const Coupon = require('../models/Coupon');
+      const coupon = await Coupon.findOne({ code: couponCode.toUpperCase(), isActive: true });
+      if (coupon && new Date(coupon.validUntil) > new Date() && coupon.usedCount < (coupon.usageLimit || Infinity)) {
+        if (coupon.discountType === 'percentage') {
+          amount = amount * (1 - coupon.discountValue / 100);
+        } else {
+          amount = Math.max(0, amount - coupon.discountValue);
+        }
+      }
+    }
+
+    // Create appointment
+    const appointment = new Appointment({
+      patient_id: req.user._id,
+      appointmentType,
+      medicalCardType,
+      status: 'pending'
+    });
+
+    await appointment.save();
+
+    // Process payment
+    const paymentResult = await processPayment(
+      { ...paymentData, amount },
+      req.user._id,
+      appointment._id
+    );
+
+    if (!paymentResult.success) {
+      await Appointment.findByIdAndDelete(appointment._id);
+      return res.status(400).json({ message: 'Payment failed', error: paymentResult.error });
+    }
+
+    // Update appointment with payment ID
+    appointment.payment_id = paymentResult.payment._id;
+    await appointment.save();
+
+    // Create notification
+    await Notification.create({
+      user_id: req.user._id,
+      type: 'appointment',
+      title: 'Appointment Created',
+      message: 'Your appointment has been created. Please complete the intake form.',
+      related_id: appointment._id
+    });
+
+    res.status(201).json({
+      message: 'Appointment created successfully',
+      appointment,
+      payment: paymentResult.payment
+    });
+  } catch (error) {
+    console.error('Create appointment error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   POST /api/appointments/:id/intake
+// @desc    Submit intake form and upload documents
+// @access  Private (Patient)
+router.post('/:id/intake', [
+  auth,
+  authorize('patient'),
+  upload.fields([
+    { name: 'idDocument', maxCount: 1 },
+    { name: 'medicalRecords', maxCount: 5 },
+    { name: 'guardianId', maxCount: 1 }
+  ])
+], async (req, res) => {
+  try {
+    const appointment = await Appointment.findOne({
+      _id: req.params.id,
+      patient_id: req.user._id
+    });
+
+    if (!appointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
+
+    const { intakeForm } = req.body;
+    const parsedIntakeForm = typeof intakeForm === 'string' ? JSON.parse(intakeForm) : intakeForm;
+
+    appointment.intakeForm = parsedIntakeForm;
+
+    // Handle file uploads
+    const documents = [];
+    if (req.files.idDocument) {
+      documents.push({
+        type: 'id',
+        filename: req.files.idDocument[0].originalname,
+        path: req.files.idDocument[0].path
+      });
+    }
+    if (req.files.medicalRecords) {
+      req.files.medicalRecords.forEach(file => {
+        documents.push({
+          type: 'medical_records',
+          filename: file.originalname,
+          path: file.path
+        });
+      });
+    }
+    if (req.files.guardianId) {
+      documents.push({
+        type: 'guardian_id',
+        filename: req.files.guardianId[0].originalname,
+        path: req.files.guardianId[0].path
+      });
+    }
+
+    appointment.documents = documents;
+
+    // Check age and set status
+    if (parsedIntakeForm.dateOfBirth) {
+      const age = new Date().getFullYear() - new Date(parsedIntakeForm.dateOfBirth).getFullYear();
+      if (age < 21) {
+        appointment.status = 'need_admin_approval';
+        appointment.ageVerified = false;
+      } else {
+        appointment.status = 'scheduled';
+      }
+    } else {
+      appointment.status = 'scheduled';
+    }
+
+    await appointment.save();
+
+    // Assign doctor
+    await assignDoctor(appointment);
+
+    // Update user profile with DOB and guardian info if provided
+    if (parsedIntakeForm.dateOfBirth) {
+      await User.findByIdAndUpdate(req.user._id, {
+        dateOfBirth: parsedIntakeForm.dateOfBirth,
+        guardianName: parsedIntakeForm.guardianName,
+        guardianEmail: parsedIntakeForm.guardianEmail,
+        guardianPhone: parsedIntakeForm.guardianPhone
+      });
+    }
+
+    // Create notification
+    await Notification.create({
+      user_id: req.user._id,
+      type: 'appointment',
+      title: 'Intake Form Submitted',
+      message: 'Your intake form has been submitted. Appointment scheduling in progress.',
+      related_id: appointment._id
+    });
+
+    // Send email notification
+    const user = await User.findById(req.user._id);
+    await sendAppointmentNotification(user, appointment, appointment.status);
+
+    res.json({
+      message: 'Intake form submitted successfully',
+      appointment
+    });
+  } catch (error) {
+    console.error('Intake form error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// Helper function to assign doctor
+const assignDoctor = async (appointment) => {
+  try {
+    const patient = await User.findById(appointment.patient_id);
+    const medicalCard = await MedicalCard.findById(appointment.medicalCardType);
+
+    // Find available doctors in the patient's state
+    const doctors = await Doctor.find({
+      states: patient.state,
+      isActive: true
+    }).populate('user_id');
+
+    if (doctors.length === 0) {
+      return null;
+    }
+
+    // Sort by price (lowest first)
+    const doctorsWithPricing = doctors.map(doctor => ({
+      doctor,
+      price: doctor.pricing?.get(patient.state) || 0
+    })).sort((a, b) => a.price - b.price);
+
+    // Find earliest available slot
+    let assignedDoctor = null;
+    let earliestDate = null;
+
+    for (const { doctor } of doctorsWithPricing) {
+      const availableSlot = findEarliestAvailableSlot(doctor, appointment.scheduledDate);
+      if (availableSlot && (!earliestDate || availableSlot < earliestDate)) {
+        earliestDate = availableSlot;
+        assignedDoctor = doctor;
+      }
+    }
+
+    if (assignedDoctor) {
+      appointment.doctor_id = assignedDoctor.user_id._id;
+      appointment.scheduledDate = earliestDate;
+      appointment.status = appointment.status === 'need_admin_approval' ? 'need_admin_approval' : 'scheduled';
+      await appointment.save();
+    }
+
+    return assignedDoctor;
+  } catch (error) {
+    console.error('Doctor assignment error:', error);
+    return null;
+  }
+};
+
+// Helper function to find earliest available slot
+const findEarliestAvailableSlot = (doctor, preferredDate = null) => {
+  const now = new Date();
+  const startDate = preferredDate ? new Date(preferredDate) : new Date();
+  startDate.setHours(0, 0, 0, 0);
+
+  // Look for available slots in the next 30 days
+  for (let day = 0; day < 30; day++) {
+    const checkDate = new Date(startDate);
+    checkDate.setDate(checkDate.getDate() + day);
+    const dayOfWeek = checkDate.getDay();
+
+    // Check if date is blocked
+    const isBlocked = doctor.blockedDates.some(blockedDate => {
+      const blocked = new Date(blockedDate);
+      return blocked.toDateString() === checkDate.toDateString();
+    });
+
+    if (isBlocked) continue;
+
+    // Find availability for this day
+    const dayAvailability = doctor.availability.find(avail => avail.dayOfWeek === dayOfWeek);
+    if (!dayAvailability) continue;
+
+    // Check for available time slots (every 30 minutes)
+    const [startHour, startMin] = dayAvailability.startTime.split(':').map(Number);
+    const [endHour, endMin] = dayAvailability.endTime.split(':').map(Number);
+    const startMinutes = startHour * 60 + startMin;
+    const endMinutes = endHour * 60 + endMin;
+
+    for (let minutes = startMinutes; minutes < endMinutes; minutes += 30) {
+      const slotTime = new Date(checkDate);
+      slotTime.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
+
+      if (slotTime > now) {
+        return slotTime;
+      }
+    }
+  }
+
+  return null;
+};
+
+// @route   GET /api/appointments
+// @desc    Get appointments (filtered by role)
+// @access  Private
+router.get('/', auth, async (req, res) => {
+  try {
+    let query = {};
+
+    if (req.user.role_id === 3) {
+      // Patient - only their appointments
+      query.patient_id = req.user._id;
+    } else if (req.user.role_id === 2) {
+      // Doctor - only their appointments
+      query.doctor_id = req.user._id;
+    }
+    // Admin and Staff can see all
+
+    const appointments = await Appointment.find(query)
+      .populate('patient_id', 'name email phone prn')
+      .populate('doctor_id', 'name email')
+      .populate('medicalCardType')
+      .sort({ createdAt: -1 });
+
+    res.json({ appointments });
+  } catch (error) {
+    console.error('Get appointments error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   GET /api/appointments/:id
+// @desc    Get single appointment
+// @access  Private
+router.get('/:id', auth, async (req, res) => {
+  try {
+    let query = { _id: req.params.id };
+
+    if (req.user.role_id === 3) {
+      query.patient_id = req.user._id;
+    } else if (req.user.role_id === 2) {
+      query.doctor_id = req.user._id;
+    }
+
+    const appointment = await Appointment.findOne(query)
+      .populate('patient_id', 'name email phone prn dateOfBirth guardianName guardianEmail guardianPhone')
+      .populate('doctor_id', 'name email')
+      .populate('medicalCardType')
+      .populate('payment_id');
+
+    if (!appointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
+
+    res.json({ appointment });
+  } catch (error) {
+    console.error('Get appointment error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   PUT /api/appointments/:id/status
+// @desc    Update appointment status (Admin/Staff)
+// @access  Private (Admin/Staff)
+router.put('/:id/status', [
+  auth,
+  authorize('admin', 'staff'),
+  body('status').isIn(['pending', 'scheduled', 'need_admin_approval', 'completed', 'canceled', 'rescheduled'])
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const appointment = await Appointment.findById(req.params.id)
+      .populate('patient_id');
+
+    if (!appointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
+
+    appointment.status = req.body.status;
+    await appointment.save();
+
+    // Create notification
+    await Notification.create({
+      user_id: appointment.patient_id._id,
+      type: 'appointment',
+      title: 'Appointment Status Updated',
+      message: `Your appointment status has been updated to ${req.body.status}`,
+      related_id: appointment._id
+    });
+
+    // Send email notification
+    await sendAppointmentNotification(appointment.patient_id, appointment, req.body.status);
+
+    res.json({
+      message: 'Appointment status updated',
+      appointment
+    });
+  } catch (error) {
+    console.error('Update status error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+module.exports = router;
