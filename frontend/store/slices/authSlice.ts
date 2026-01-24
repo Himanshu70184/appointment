@@ -1,19 +1,9 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit'
 import axios from 'axios'
 import Cookies from 'js-cookie'
+import type { User } from '@/types'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
-
-interface User {
-  id: string
-  name: string
-  email: string
-  phone?: string
-  state?: string
-  role_id: number
-  prn?: string
-  status?: string
-}
 
 interface AuthState {
   user: User | null
