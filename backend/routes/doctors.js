@@ -375,7 +375,7 @@ router.get('/:id/available-slots', async (req, res) => {
 // @access  Private (Admin)
 router.put('/:id/availability', [
   auth,
-  authorize(1),
+  authorize('admin'),
   body('availability').isArray().withMessage('Availability must be an array')
 ], async (req, res) => {
   try {
@@ -408,7 +408,7 @@ router.put('/:id/availability', [
 // @access  Private (Admin)
 router.post('/:id/block-dates', [
   auth,
-  authorize(1),
+  authorize('admin'),
   body('dates').isArray().withMessage('Dates must be an array')
 ], async (req, res) => {
   try {
@@ -441,7 +441,7 @@ router.post('/:id/block-dates', [
 // @access  Private (Admin)
 router.delete('/:id/block-dates', [
   auth,
-  authorize(1),
+  authorize('admin'),
   body('dates').isArray().withMessage('Dates must be an array')
 ], async (req, res) => {
   try {

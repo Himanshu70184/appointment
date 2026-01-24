@@ -20,6 +20,15 @@ const appointmentTypeSchema = new mongoose.Schema({
     type: Number,
     required: true
   },
+  cardValidityMonths: {
+    type: Number,
+    default: 12, // How long the medical card is valid (6, 12, 24 months)
+    required: true
+  },
+  states: [{
+    type: String,
+    uppercase: true
+  }], // Which states this appointment type is available in
   isActive: {
     type: Boolean,
     default: true

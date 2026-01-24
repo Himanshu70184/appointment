@@ -21,7 +21,6 @@ interface State {
   name: string;
   abbreviation: string;
   region: string;
-  medicalCardPrice: number;
   isActive: boolean;
   notes?: string;
 }
@@ -135,7 +134,7 @@ export default function StatesPage() {
             <div className="flex justify-between items-center">
               <div>
                 <h1 className="text-3xl font-bold text-gray-900">States Management</h1>
-                <p className="mt-2 text-gray-600">Manage available medical marijuana states and pricing</p>
+                <p className="mt-2 text-gray-600">Manage available medical marijuana states</p>
               </div>
               <button
                 onClick={handleCreateNew}
@@ -202,7 +201,7 @@ export default function StatesPage() {
           </div>
 
           {/* Stats Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
             <div className="bg-white rounded-lg shadow p-6">
               <p className="text-gray-600 text-sm font-medium">Total States</p>
               <p className="text-3xl font-bold text-gray-900 mt-2">{states.length}</p>
@@ -217,12 +216,6 @@ export default function StatesPage() {
               <p className="text-gray-600 text-sm font-medium">Inactive States</p>
               <p className="text-3xl font-bold text-red-600 mt-2">
                 {states.filter(s => !s.isActive).length}
-              </p>
-            </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <p className="text-gray-600 text-sm font-medium">Avg Price</p>
-              <p className="text-3xl font-bold text-blue-600 mt-2">
-                ${states.length > 0 ? (states.reduce((sum, s) => sum + s.medicalCardPrice, 0) / states.length).toFixed(0) : 0}
               </p>
             </div>
           </div>
@@ -243,57 +236,31 @@ export default function StatesPage() {
                 <table className="w-full">
                   <thead className="bg-gray-100 border-b border-gray-200">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Code</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">S/No</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">State Name</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Region</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Card Price</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Status</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {filteredStates.map((state) => (
+                    {filteredStates.map((state, index) => (
                       <tr key={state._id} className="hover:bg-gray-50 transition">
-                        <td className="px-6 py-4">
-                          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
-                            {state.code}
-                          </span>
+                        <td className="px-6 py-4 text-gray-900">
+                          {index + 1}
                         </td>
                         <td className="px-6 py-4">
-                          <div>
-                            <p className="font-medium text-gray-900">{state.name}</p>
-                            {state.notes && <p className="text-sm text-gray-500">{state.notes}</p>}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="text-gray-700">{state.region || '-'}</span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="font-semibold text-gray-900">${state.medicalCardPrice}</span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <button
-                            onClick={() => handleToggleActive(state._id)}
-                            className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium cursor-pointer transition ${
-                              state.isActive
-                                ? 'bg-green-100 text-green-800 hover:bg-green-200'
-                                : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
-                            }`}
-                          >
-                            {state.isActive ? '✓ Active' : '○ Inactive'}
-                          </button>
+                          <p className="font-medium text-gray-900">{state.name}</p>
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex gap-2">
                             <button
                               onClick={() => handleEdit(state)}
-                              className="inline-flex items-center px-3 py-1 rounded text-sm font-medium bg-blue-50 text-blue-600 hover:bg-blue-100 transition"
+                              className="inline-flex items-center px-3 py-1 rounded text-sm font-medium text-blue-600 hover:text-blue-800 transition"
                             >
                               Edit
                             </button>
                             <button
                               onClick={() => handleDeleteState(state._id, state.name)}
-                              className="inline-flex items-center px-3 py-1 rounded text-sm font-medium bg-red-50 text-red-600 hover:bg-red-100 transition"
+                              className="inline-flex items-center px-3 py-1 rounded text-sm font-medium text-red-600 hover:text-red-800 transition"
                             >
                               Delete
                             </button>

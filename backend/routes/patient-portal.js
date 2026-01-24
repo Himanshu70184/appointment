@@ -2,7 +2,7 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const Appointment = require('../models/Appointment');
 const Payment = require('../models/Payment');
-const MedicalCard = require('../models/MedicalCard');
+const AppointmentType = require('../models/AppointmentType');
 const Doctor = require('../models/Doctor');
 const User = require('../models/User');
 const Coupon = require('../models/Coupon');
@@ -159,14 +159,14 @@ router.post('/book-appointment', [
       }
     }
 
-    // Get medical card details
-    const medicalCard = await MedicalCard.findById(cardType);
-    if (!medicalCard) {
-      return res.status(404).json({ message: 'Medical card type not found' });
+    // Get appointment type details
+    const appointmentType = await AppointmentType.findById(cardType);
+    if (!appointmentType) {
+      return res.status(404).json({ message: 'Appointment type not found' });
     }
 
     // Calculate amount with coupon discount
-    let amount = medicalCard.price;
+    let amount = appointmentType.price;
     let appliedCoupon = null;
 
     if (couponCode) {
@@ -233,8 +233,7 @@ router.post('/book-appointment', [
     const appointment = new Appointment({
       patient_id: user._id,
       doctor_id,
-      appointmentType: medicalCard.name,
-      medicalCardType: cardType,
+      appointmentType: cardType, // Now ObjectId reference
       scheduledDate: new Date(scheduledDate),
       scheduledTime,
       state,
@@ -542,7 +541,7 @@ router.get('/appointments', auth, authorize('patient'), async (req, res) => {
   try {
     const appointments = await Appointment.find({ patient_id: req.user._id })
       .populate('doctor_id', 'name email')
-      .populate('medicalCardType', 'name price')
+      .populate('appointmentType', 'name price duration cardValidityMonths')
       .populate('payment_id', 'amount status transactionId')
       .sort({ createdAt: -1 });
 
@@ -567,7 +566,7 @@ router.get('/appointment/:id', auth, authorize('patient'), async (req, res) => {
   try {
     const appointment = await Appointment.findById(req.params.id)
       .populate('doctor_id', 'name email phone')
-      .populate('medicalCardType', 'name description price')
+      .populate('appointmentType', 'name description price duration cardValidityMonths')
       .populate('payment_id', 'amount status transactionId createdAt');
 
     if (!appointment) {
@@ -696,13 +695,48 @@ router.put('/change-password', [
   }
 });
 
+// @route   GET /api/patient-portal/appointment-types
+// @desc    Get all active appointment types for a specific state
+// @access  Public
+router.get('/appointment-types', async (req, res) => {
+  try {
+    const { state } = req.query;
+    
+    const filter = { isActive: true };
+    
+    // If state is provided, filter appointment types available in that state
+    if (state) {
+      filter.$or = [
+        { states: state }, // Appointment type specifically for this state
+        { states: { $size: 0 } } // Appointment type available in all states (empty array)
+      ];
+    }
+
+    const appointmentTypes = await AppointmentType.find(filter)
+      .select('name description price duration cardValidityMonths states')
+      .sort({ price: 1 });
+
+    res.json({
+      success: true,
+      appointmentTypes
+    });
+
+  } catch (error) {
+    console.error('Error fetching appointment types:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch appointment types', 
+      error: error.message 
+    });
+  }
+});
+
 // @route   GET /api/patient-portal/states
-// @desc    Get all active states with medical card prices
+// @desc    Get all active states
 // @access  Public
 router.get('/states', async (req, res) => {
   try {
     const states = await State.find({ isActive: true })
-      .select('code name medicalCardPrice region')
+      .select('code name region')
       .sort({ name: 1 });
 
     res.json({

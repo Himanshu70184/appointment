@@ -50,7 +50,9 @@ router.get('/:id', async (req, res) => {
 // @route   POST /api/appointment-types
 // @desc    Create new appointment type
 // @access  Private (Admin only)
-router.post('/', auth, authorize(1), [
+router.post('/', [
+  auth,
+  authorize('admin'),
   body('name').notEmpty().withMessage('Name is required'),
   body('description').notEmpty().withMessage('Description is required'),
   body('duration').isInt({ min: 1 }).withMessage('Duration must be at least 1 minute'),
@@ -92,7 +94,7 @@ router.post('/', auth, authorize(1), [
 // @route   PUT /api/appointment-types/:id
 // @desc    Update appointment type
 // @access  Private (Admin only)
-router.put('/:id', auth, authorize(1), async (req, res) => {
+router.put('/:id', [auth, authorize('admin')], async (req, res) => {
   try {
     const { name, description, duration, price, isActive } = req.body;
 
@@ -122,7 +124,7 @@ router.put('/:id', auth, authorize(1), async (req, res) => {
 // @route   DELETE /api/appointment-types/:id
 // @desc    Delete appointment type
 // @access  Private (Admin only)
-router.delete('/:id', auth, authorize(1), async (req, res) => {
+router.delete('/:id', [auth, authorize('admin')], async (req, res) => {
   try {
     const appointmentType = await AppointmentType.findById(req.params.id);
 

@@ -54,7 +54,7 @@ export default function PatientBookingPage() {
   const [selectedCardType, setSelectedCardType] = useState('')
   const [selectedDate, setSelectedDate] = useState('')
   const [selectedSlot, setSelectedSlot] = useState<any>(null)
-  const [medicalCards, setMedicalCards] = useState<any[]>([])
+  const [appointmentTypes, setAppointmentTypes] = useState<any[]>([])
   const [showMinorFields, setShowMinorFields] = useState(false)
   const [couponCode, setCouponCode] = useState('')
   const [couponData, setCouponData] = useState<any>(null)
@@ -73,7 +73,7 @@ export default function PatientBookingPage() {
 
   useEffect(() => {
     dispatch(getActiveStates())
-    fetchMedicalCards()
+    fetchAppointmentTypes()
   }, [dispatch])
 
   useEffect(() => {
@@ -87,12 +87,14 @@ export default function PatientBookingPage() {
     }
   }, [dateOfBirth])
 
-  const fetchMedicalCards = async () => {
+  const fetchAppointmentTypes = async () => {
     try {
-      const response = await api.get('/api/medcards')
-      setMedicalCards(response.data.medicalCards || [])
+      const response = await api.get('/api/patient-portal/appointment-types', {
+        params: selectedState ? { state: selectedState } : {}
+      })
+      setAppointmentTypes(response.data.appointmentTypes || [])
     } catch (error) {
-      console.error('Failed to fetch medical cards:', error)
+      console.error('Failed to fetch appointment types:', error)
     }
   }
 
@@ -123,12 +125,12 @@ export default function PatientBookingPage() {
   const handleCouponValidation = async () => {
     if (!couponCode) return
 
-    const card = medicalCards.find((c) => c._id === selectedCardType)
-    if (!card) return
+    const appointmentType = appointmentTypes.find((c) => c._id === selectedCardType)
+    if (!appointmentType) return
 
     try {
       const result = await dispatch(
-        validateCoupon({ couponCode, amount: card.price })
+        validateCoupon({ couponCode, amount: appointmentType.price })
       ).unwrap()
       setCouponData(result)
       setFinalAmount(result.finalAmount)
@@ -136,13 +138,13 @@ export default function PatientBookingPage() {
     } catch (err: any) {
       alert(err.message || 'Invalid coupon code')
       setCouponData(null)
-      setFinalAmount(card.price)
+      setFinalAmount(appointmentType.price)
     }
   }
 
   const onSubmit = async (data: BookingFormData) => {
-    const card = medicalCards.find((c) => c._id === selectedCardType)
-    if (!card || !selectedSlot) return
+    const appointmentType = appointmentTypes.find((c) => c._id === selectedCardType)
+    if (!appointmentType || !selectedSlot) return
 
     const bookingData = {
       firstName: data.firstName,
@@ -222,24 +224,30 @@ export default function PatientBookingPage() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-2">Select Card Type</label>
+          <label className="block text-sm font-medium mb-2">Select Appointment Type</label>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {medicalCards.map((card) => (
+            {appointmentTypes.map((type) => (
               <div
-                key={card._id}
+                key={type._id}
                 onClick={() => {
-                  setSelectedCardType(card._id)
-                  setFinalAmount(card.price)
+                  setSelectedCardType(type._id)
+                  setFinalAmount(type.price)
                 }}
                 className={`p-4 border-2 rounded-lg cursor-pointer transition-colors ${
-                  selectedCardType === card._id
+                  selectedCardType === type._id
                     ? 'border-blue-500 bg-blue-50'
                     : 'border-gray-200 hover:border-blue-300'
                 }`}
               >
-                <h3 className="font-semibold">{card.name}</h3>
-                <p className="text-gray-600 text-sm mt-1">{card.description}</p>
-                <p className="text-2xl font-bold text-blue-600 mt-2">${card.price}</p>
+                <h3 className="font-semibold">{type.name}</h3>
+                <p className="text-gray-600 text-sm mt-1">{type.description}</p>
+                <div className="mt-2 flex justify-between items-center">
+                  <p className="text-2xl font-bold text-blue-600">${type.price}</p>
+                  <p className="text-sm text-gray-500">{type.duration} min</p>
+                </div>
+                {type.cardValidityMonths && (
+                  <p className="text-xs text-gray-500 mt-1">Valid for {type.cardValidityMonths} months</p>
+                )}
               </div>
             ))}
           </div>

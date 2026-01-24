@@ -55,7 +55,6 @@ app.use('/api/appointments', require('./routes/appointments'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/payment', require('./routes/payment'));
-app.use('/api/medcards', require('./routes/medcards'));
 app.use('/api/doctors', require('./routes/doctors'));
 app.use('/api/doctor-portal', require('./routes/doctor-portal'));
 app.use('/api/patient-portal', require('./routes/patient-portal'));

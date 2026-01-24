@@ -197,9 +197,6 @@ export default function AdminBookAppointmentPage() {
                 >
                   <h3 className="font-semibold">{state.name}</h3>
                   <p className="text-sm text-gray-600">{state.code}</p>
-                  <p className="text-lg font-bold text-primary-600 mt-2">
-                    ${state.medicalCardPrice}
-                  </p>
                 </div>
               ))}
             </div>

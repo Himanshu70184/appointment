@@ -15,6 +15,8 @@ const appointmentTypeSchema = z.object({
   description: z.string().min(1, 'Description is required'),
   duration: z.number().min(1, 'Duration must be at least 1 minute'),
   price: z.number().min(0, 'Price must be positive'),
+  cardValidityMonths: z.number().min(1, 'Card validity must be at least 1 month'),
+  states: z.array(z.string()).optional(),
   isActive: z.boolean().optional(),
 })
 
@@ -34,6 +36,8 @@ export default function SettingsPage() {
       isActive: true,
       duration: 30,
       price: 0,
+      cardValidityMonths: 12,
+      states: [],
     }
   })
 
@@ -57,6 +61,8 @@ export default function SettingsPage() {
       description: '',
       duration: 30,
       price: 0,
+      cardValidityMonths: 12,
+      states: [],
       isActive: true,
     })
     setShowModal(true)
@@ -69,6 +75,8 @@ export default function SettingsPage() {
       description: type.description,
       duration: type.duration,
       price: type.price,
+      cardValidityMonths: type.cardValidityMonths || 12,
+      states: type.states || [],
       isActive: type.isActive,
     })
     setShowModal(true)
@@ -262,6 +270,38 @@ export default function SettingsPage() {
                     {errors.price && (
                       <p className="mt-1 text-sm text-red-600">{errors.price.message}</p>
                     )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Card Validity (months) <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      {...register('cardValidityMonths', { valueAsNumber: true })}
+                      type="number"
+                      min="1"
+                      className="input-field"
+                      placeholder="12"
+                    />
+                    {errors.cardValidityMonths && (
+                      <p className="mt-1 text-sm text-red-600">{errors.cardValidityMonths.message}</p>
+                    )}
+                    <p className="mt-1 text-xs text-gray-500">How long the medical card is valid</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      States (optional)
+                    </label>
+                    <input
+                      {...register('states')}
+                      type="text"
+                      className="input-field"
+                      placeholder="CA, NY, FL (leave empty for all states)"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">Comma-separated state codes</p>
                   </div>
                 </div>
 

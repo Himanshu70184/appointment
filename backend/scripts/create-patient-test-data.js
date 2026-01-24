@@ -49,29 +49,29 @@ const createPatientTestData = async () => {
         {
           code: 'CA',
           name: 'California',
+          abbreviation: 'CA',
           region: 'West',
-          medicalCardPrice: 150,
           isActive: true
         },
         {
           code: 'NY',
           name: 'New York',
+          abbreviation: 'NY',
           region: 'Northeast',
-          medicalCardPrice: 175,
           isActive: true
         },
         {
           code: 'FL',
           name: 'Florida',
-          region: 'Southeast',
-          medicalCardPrice: 125,
+          abbreviation: 'FL',
+          region: 'South',
           isActive: true
         },
         {
           code: 'TX',
           name: 'Texas',
+          abbreviation: 'TX',
           region: 'South',
-          medicalCardPrice: 140,
           isActive: true
         }
       ];

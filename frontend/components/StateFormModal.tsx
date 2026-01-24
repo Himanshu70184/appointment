@@ -9,7 +9,6 @@ interface State {
   name: string;
   abbreviation: string;
   region: string;
-  medicalCardPrice: number;
   isActive: boolean;
   notes?: string;
 }
@@ -30,7 +29,6 @@ export default function StateFormModal({ state, onClose }: StateFormModalProps) 
     name: '',
     abbreviation: '',
     region: 'South',
-    medicalCardPrice: 150,
     notes: ''
   });
 
@@ -43,7 +41,6 @@ export default function StateFormModal({ state, onClose }: StateFormModalProps) 
         name: state.name,
         abbreviation: state.abbreviation,
         region: state.region,
-        medicalCardPrice: state.medicalCardPrice,
         notes: state.notes || ''
       });
     }
@@ -68,10 +65,6 @@ export default function StateFormModal({ state, onClose }: StateFormModalProps) 
       newErrors.abbreviation = 'Abbreviation must be 2 characters';
     }
 
-    if (formData.medicalCardPrice < 0) {
-      newErrors.medicalCardPrice = 'Price must be a positive number';
-    }
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -91,7 +84,6 @@ export default function StateFormModal({ state, onClose }: StateFormModalProps) 
           name: formData.name,
           abbreviation: formData.abbreviation.toUpperCase(),
           region: formData.region,
-          medicalCardPrice: formData.medicalCardPrice,
           notes: formData.notes
         }
       }));
@@ -102,7 +94,6 @@ export default function StateFormModal({ state, onClose }: StateFormModalProps) 
         name: formData.name,
         abbreviation: formData.abbreviation.toUpperCase(),
         region: formData.region,
-        medicalCardPrice: formData.medicalCardPrice,
         notes: formData.notes
       }));
     }
@@ -114,7 +105,7 @@ export default function StateFormModal({ state, onClose }: StateFormModalProps) 
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: name === 'medicalCardPrice' ? parseFloat(value) || 0 : value
+      [name]: value
     }));
     // Clear error for this field
     if (errors[name]) {
@@ -219,27 +210,6 @@ export default function StateFormModal({ state, onClose }: StateFormModalProps) 
                 </option>
               ))}
             </select>
-          </div>
-
-          {/* Medical Card Price */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Medical Card Price ($)
-            </label>
-            <input
-              type="number"
-              name="medicalCardPrice"
-              value={formData.medicalCardPrice}
-              onChange={handleChange}
-              min="0"
-              step="0.01"
-              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                errors.medicalCardPrice ? 'border-red-500' : 'border-gray-300'
-              }`}
-            />
-            {errors.medicalCardPrice && (
-              <p className="text-red-500 text-xs mt-1">{errors.medicalCardPrice}</p>
-            )}
           </div>
 
           {/* Notes */}

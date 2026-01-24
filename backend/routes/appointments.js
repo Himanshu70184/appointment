@@ -5,7 +5,7 @@ const fs = require('fs');
 const { body, validationResult } = require('express-validator');
 const Appointment = require('../models/Appointment');
 const Payment = require('../models/Payment');
-const MedicalCard = require('../models/MedicalCard');
+const AppointmentType = require('../models/AppointmentType');
 const Doctor = require('../models/Doctor');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
@@ -57,7 +57,7 @@ router.post('/admin-book', [
   body('patient_id').notEmpty().withMessage('Patient is required'),
   body('doctor_id').notEmpty().withMessage('Doctor is required'),
   body('state_id').notEmpty().withMessage('State is required'),
-  body('medicalCard_id').notEmpty().withMessage('Medical card type is required'),
+  body('appointmentType_id').notEmpty().withMessage('Appointment type is required'),
   body('appointmentDate').notEmpty().withMessage('Appointment date is required'),
   body('appointmentTime').notEmpty().withMessage('Appointment time is required')
 ], async (req, res) => {
@@ -71,7 +71,7 @@ router.post('/admin-book', [
       patient_id,
       doctor_id,
       state_id,
-      medicalCard_id,
+      appointmentType_id,
       appointmentDate,
       appointmentTime,
       notes
@@ -89,10 +89,10 @@ router.post('/admin-book', [
       return res.status(404).json({ message: 'Doctor not found' });
     }
 
-    // Verify medical card exists
-    const medicalCard = await MedicalCard.findById(medicalCard_id);
-    if (!medicalCard) {
-      return res.status(404).json({ message: 'Medical card type not found' });
+    // Verify appointment type exists
+    const appointmentType = await AppointmentType.findById(appointmentType_id);
+    if (!appointmentType) {
+      return res.status(404).json({ message: 'Appointment type not found' });
     }
 
     // Create appointment with pending status (requires approval)
@@ -100,7 +100,7 @@ router.post('/admin-book', [
       patient_id,
       doctor_id,
       state_id,
-      medicalCardType: medicalCard_id,
+      appointmentType: appointmentType_id,
       appointmentDate: new Date(appointmentDate),
       appointmentTime,
       status: 'pending',
@@ -145,8 +145,7 @@ router.post('/admin-book', [
 router.post('/', [
   auth,
   authorize('patient'),
-  body('medicalCardType').notEmpty().withMessage('Medical card type is required'),
-  body('appointmentType').notEmpty().withMessage('Appointment type is required'),
+  body('appointmentType_id').notEmpty().withMessage('Appointment type is required'),
   body('payment').notEmpty().withMessage('Payment information is required')
 ], async (req, res) => {
   try {
@@ -155,16 +154,16 @@ router.post('/', [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { medicalCardType, appointmentType, payment: paymentData, couponCode } = req.body;
+    const { appointmentType_id, payment: paymentData, couponCode } = req.body;
 
-    // Get medical card details
-    const medicalCard = await MedicalCard.findById(medicalCardType);
-    if (!medicalCard) {
-      return res.status(404).json({ message: 'Medical card type not found' });
+    // Get appointment type details
+    const appointmentType = await AppointmentType.findById(appointmentType_id);
+    if (!appointmentType) {
+      return res.status(404).json({ message: 'Appointment type not found' });
     }
 
     // Calculate amount (apply coupon if provided)
-    let amount = medicalCard.price;
+    let amount = appointmentType.price;
     if (couponCode) {
       const Coupon = require('../models/Coupon');
       const coupon = await Coupon.findOne({ code: couponCode.toUpperCase(), isActive: true });
@@ -180,8 +179,7 @@ router.post('/', [
     // Create appointment
     const appointment = new Appointment({
       patient_id: req.user._id,
-      appointmentType,
-      medicalCardType,
+      appointmentType: appointmentType_id,
       status: 'pending'
     });
 
@@ -333,7 +331,7 @@ router.post('/:id/intake', [
 const assignDoctor = async (appointment) => {
   try {
     const patient = await User.findById(appointment.patient_id);
-    const medicalCard = await MedicalCard.findById(appointment.medicalCardType);
+    const appointmentType = await AppointmentType.findById(appointment.appointmentType);
 
     // Find available doctors in the patient's state
     const doctors = await Doctor.find({
@@ -439,7 +437,7 @@ router.get('/', auth, async (req, res) => {
     const appointments = await Appointment.find(query)
       .populate('patient_id', 'name email phone prn')
       .populate('doctor_id', 'name email')
-      .populate('medicalCardType')
+      .populate('appointmentType', 'name price duration cardValidityMonths')
       .sort({ createdAt: -1 });
 
     res.json({ appointments });
@@ -465,7 +463,7 @@ router.get('/:id', auth, async (req, res) => {
     const appointment = await Appointment.findOne(query)
       .populate('patient_id', 'name email phone prn dateOfBirth guardianName guardianEmail guardianPhone')
       .populate('doctor_id', 'name email')
-      .populate('medicalCardType')
+      .populate('appointmentType', 'name description price duration cardValidityMonths')
       .populate('payment_id');
 
     if (!appointment) {

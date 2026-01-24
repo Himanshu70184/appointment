@@ -97,8 +97,7 @@ router.post('/', [
   body('code').isLength({ min: 2, max: 2 }).withMessage('Code must be 2 characters'),
   body('name').trim().notEmpty().withMessage('State name is required'),
   body('abbreviation').isLength({ min: 2, max: 2 }).withMessage('Abbreviation must be 2 characters'),
-  body('region').isIn(['Northeast', 'Midwest', 'South', 'West', 'Territory']).optional(),
-  body('medicalCardPrice').isFloat({ min: 0 }).optional()
+  body('region').isIn(['Northeast', 'Midwest', 'South', 'West', 'Territory']).optional()
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -106,7 +105,7 @@ router.post('/', [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { code, name, abbreviation, region, medicalCardPrice, notes } = req.body;
+    const { code, name, abbreviation, region, notes } = req.body;
 
     // Check if state already exists
     const existingState = await State.findOne({
@@ -122,7 +121,6 @@ router.post('/', [
       name,
       abbreviation: abbreviation.toUpperCase(),
       region,
-      medicalCardPrice,
       notes,
       createdBy: req.user._id,
       updatedBy: req.user._id
@@ -152,7 +150,6 @@ router.put('/:id', [
   authorize('admin'),
   body('name').trim().optional(),
   body('region').isIn(['Northeast', 'Midwest', 'South', 'West', 'Territory']).optional(),
-  body('medicalCardPrice').isFloat({ min: 0 }).optional(),
   body('isActive').isBoolean().optional()
 ], async (req, res) => {
   try {
@@ -170,7 +167,6 @@ router.put('/:id', [
     // Update fields
     if (req.body.name) state.name = req.body.name;
     if (req.body.region) state.region = req.body.region;
-    if (req.body.medicalCardPrice !== undefined) state.medicalCardPrice = req.body.medicalCardPrice;
     if (req.body.isActive !== undefined) state.isActive = req.body.isActive;
     if (req.body.notes) state.notes = req.body.notes;
 
@@ -302,43 +298,6 @@ router.post('/bulk/delete', [auth, authorize('admin')], asyncHandler(async (req,
   });
 }));
 
-// @route   POST /api/states/bulk/update-price
-// @desc    Bulk update medical card price (Admin only)
-// @access  Private (Admin)
-router.post('/bulk/update-price', [
-  auth, 
-  authorize('admin'),
-  body('stateIds').isArray({ min: 1 }),
-  body('medicalCardPrice').isFloat({ min: 0 })
-], asyncHandler(async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
-
-  const { stateIds, medicalCardPrice } = req.body;
-
-  const result = await State.updateMany(
-    { _id: { $in: stateIds } },
-    { 
-      medicalCardPrice,
-      updatedBy: req.user._id,
-      updatedAt: Date.now()
-    }
-  );
-
-  logger.info('Bulk price update', { 
-    count: result.modifiedCount, 
-    newPrice: medicalCardPrice 
-  });
-
-  res.json({
-    message: `Price updated for ${result.modifiedCount} states`,
-    modifiedCount: result.modifiedCount,
-    newPrice: medicalCardPrice
-  });
-}));
-
 // @route   GET /api/states/export/csv
 // @desc    Export all states to CSV (Admin only)
 // @access  Private (Admin)
@@ -353,7 +312,6 @@ router.get('/export/csv', [auth, authorize('admin')], asyncHandler(async (req, r
     name: state.name,
     abbreviation: state.abbreviation,
     region: state.region,
-    medicalCardPrice: state.medicalCardPrice,
     isActive: state.isActive,
     notes: state.notes || ''
   }));
@@ -384,7 +342,6 @@ router.post('/import/csv', [auth, authorize('admin'), upload.single('file')], as
       required: true, 
       enum: ['Northeast', 'Midwest', 'South', 'West', 'Territory'] 
     },
-    medicalCardPrice: { required: true, type: 'number', min: 0 },
     isActive: { type: 'boolean' },
     notes: { type: 'string' }
   };
@@ -395,7 +352,6 @@ router.post('/import/csv', [auth, authorize('admin'), upload.single('file')], as
     name: row.name,
     abbreviation: row.abbreviation.toUpperCase(),
     region: row.region,
-    medicalCardPrice: Number(row.medicalCardPrice),
     isActive: row.isActive === 'true' || row.isActive === '1' || row.isActive === true,
     notes: row.notes || ''
   });

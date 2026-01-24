@@ -47,7 +47,6 @@ export interface State {
   name: string
   abbreviation: string
   region: 'Northeast' | 'Midwest' | 'South' | 'West' | 'Territory'
-  medicalCardPrice: number
   isActive: boolean
   notes?: string
 }

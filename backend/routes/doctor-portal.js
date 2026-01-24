@@ -47,7 +47,7 @@ router.get('/dashboard', [auth, authorize('doctor')], async (req, res) => {
       }
     })
       .populate('patient_id', 'name email phone')
-      .populate('medicalCardType', 'name price')
+      .populate('appointmentType', 'name price duration cardValidityMonths')
       .sort({ scheduledDate: 1, scheduledTime: 1 })
       .limit(10);
 
@@ -96,7 +96,7 @@ router.get('/appointments', [auth, authorize('doctor')], async (req, res) => {
 
     let appointments = await Appointment.find(query)
       .populate('patient_id', 'name email phone dateOfBirth')
-      .populate('medicalCardType', 'name price')
+      .populate('appointmentType', 'name price duration cardValidityMonths')
       .sort({ scheduledDate: -1, scheduledTime: -1 });
 
     // Apply search filter if provided
@@ -122,7 +122,7 @@ router.get('/appointments/:id', [auth, authorize('doctor')], async (req, res) =>
   try {
     const appointment = await Appointment.findById(req.params.id)
       .populate('patient_id', 'name email phone dateOfBirth state')
-      .populate('medicalCardType', 'name price description')
+      .populate('appointmentType', 'name price description duration cardValidityMonths')
       .populate('doctor_id', 'name email')
       .populate('documentRequests.requestedBy', 'name');
 

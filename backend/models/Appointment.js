@@ -11,12 +11,8 @@ const appointmentSchema = new mongoose.Schema({
     ref: 'User'
   },
   appointmentType: {
-    type: String,
-    required: true
-  },
-  medicalCardType: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'MedicalCard',
+    ref: 'AppointmentType',
     required: true
   },
   status: {

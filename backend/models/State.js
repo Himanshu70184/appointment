@@ -31,13 +31,6 @@ const stateSchema = new mongoose.Schema({
     enum: ['Northeast', 'Midwest', 'South', 'West', 'Territory'],
     default: 'South'
   },
-  population: {
-    type: Number
-  },
-  medicalCardPrice: {
-    type: Number,
-    default: 150
-  },
   notes: {
     type: String
   },
