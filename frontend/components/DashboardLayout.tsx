@@ -39,16 +39,23 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   }
 
   const menuItems = [
-    { icon: '📊', label: 'Dashboard', href: '/dashboard', roles: [1, 2, 3, 4] },
-    { icon: '📅', label: 'Appointments', href: '/appointments', roles: [1, 2, 3, 4] },
+    // Admin menu items
+    { icon: '📊', label: 'Dashboard', href: '/dashboard', roles: [1, 3, 4] },
+    { icon: '📅', label: 'Appointments', href: '/appointments', roles: [1, 3, 4] },
     { icon: '👨‍⚕️', label: 'Doctors', href: '/doctors', roles: [1, 4] },
     { icon: '👥', label: 'Staff', href: '/staff', roles: [1] },
-    { icon: '👤', label: 'Patients', href: '/patients', roles: [1, 2, 4] },
+    { icon: '👤', label: 'Patients', href: '/patients', roles: [1, 4] },
     { icon: '📋', label: 'Task', href: '/tasks', roles: [1, 4] },
     { icon: '🏷️', label: 'Coupons', href: '/coupons', roles: [1] },
     { icon: '📍', label: 'States', href: '/states', roles: [1] },
     { icon: '👤', label: 'Leads', href: '/leads', roles: [1, 4] },
-    { icon: '⚙️', label: 'Setting', href: '/settings', roles: [1, 2, 3, 4] },
+    { icon: '⚙️', label: 'Setting', href: '/settings', roles: [1, 3, 4] },
+    
+    // Doctor menu items
+    { icon: '📊', label: 'Dashboard', href: '/doctor/dashboard', roles: [2] },
+    { icon: '📅', label: 'My Appointments', href: '/doctor/appointments', roles: [2] },
+    { icon: '👤', label: 'Profile', href: '/doctor/profile', roles: [2] },
+    { icon: '🔔', label: 'Notifications', href: '/doctor/notifications', roles: [2] },
   ]
 
   const filteredMenuItems = menuItems.filter(item => 
@@ -134,9 +141,16 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   {getRoleName(user?.role_id || 0)}
                 </span>
               </div>
+              {/* Patient booking button */}
               {user?.role_id === 3 && (
-                <Link href="/appointments/book" className="btn-primary">
+                <Link href="/patient/book" className="btn-primary">
                   Booking Now
+                </Link>
+              )}
+              {/* Admin/Staff booking button */}
+              {(user?.role_id === 1 || user?.role_id === 4) && (
+                <Link href="/appointments/book" className="btn-primary">
+                  Book for Patient
                 </Link>
               )}
             </div>

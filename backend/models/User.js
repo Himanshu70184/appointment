@@ -64,6 +64,12 @@ const userSchema = new mongoose.Schema({
   dateOfBirth: {
     type: Date
   },
+  firstName: {
+    type: String
+  },
+  lastName: {
+    type: String
+  },
   guardianName: {
     type: String
   },
@@ -72,6 +78,25 @@ const userSchema = new mongoose.Schema({
   },
   guardianPhone: {
     type: String
+  },
+  guardianAddress: {
+    type: String
+  },
+  isMinor: {
+    type: Boolean,
+    default: false
+  },
+  twoFactorEnabled: {
+    type: Boolean,
+    default: true // Enable 2FA by default for admins
+  },
+  twoFactorCode: {
+    type: String,
+    select: false
+  },
+  twoFactorExpires: {
+    type: Date,
+    select: false
   },
   createdAt: {
     type: Date,

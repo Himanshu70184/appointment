@@ -65,15 +65,33 @@ export default function DashboardPage() {
   // Calculate appointment statistics
   const totalAppointments = appointments.length
   const scheduledAppointments = appointments.filter((a: any) => a.status === 'scheduled').length
-  const approvalAppointments = appointments.filter((a: any) => a.status === 'need_admin_approval').length
+  const approvalAppointments = appointments.filter((a: any) => a.status === 'approval').length
   const rescheduledAppointments = appointments.filter((a: any) => a.status === 'rescheduled').length
-  const canceledAppointments = appointments.filter((a: any) => a.status === 'canceled').length
+  const canceledAppointments = appointments.filter((a: any) => a.status === 'cancelled').length
   const completedAppointments = appointments.filter((a: any) => a.status === 'completed').length
   const pendingAppointments = appointments.filter((a: any) => a.status === 'pending').length
-  const onHoldAppointments = appointments.filter((a: any) => a.status === 'need_admin_approval').length
+  const onHoldAppointments = appointments.filter((a: any) => a.status === 'on-hold').length
 
   return (
     <DashboardLayout>
+      {/* Quick Actions - Admin/Staff */}
+      {(user?.role_id === 1 || user?.role_id === 4) && (
+        <div className="mb-6 flex gap-4">
+          <button
+            onClick={() => router.push('/appointments/book')}
+            className="btn-primary"
+          >
+            📅 Book Appointment for Patient
+          </button>
+          <button
+            onClick={() => router.push('/appointments')}
+            className="btn-secondary"
+          >
+            📋 View All Appointments
+          </button>
+        </div>
+      )}
+
       {/* Appointment Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard

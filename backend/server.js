@@ -17,7 +17,7 @@ app.use(cors({
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100 // limit each IP to 100 requests per windowMs
+  max: 1000 // limit each IP to 1000 requests per windowMs
 });
 app.use('/api/', limiter);
 
@@ -44,6 +44,12 @@ app.use('/api/admin', require('./routes/admin'));
 app.use('/api/payment', require('./routes/payment'));
 app.use('/api/medcards', require('./routes/medcards'));
 app.use('/api/doctors', require('./routes/doctors'));
+app.use('/api/doctor-portal', require('./routes/doctor-portal'));
+app.use('/api/patient-portal', require('./routes/patient-portal'));
+app.use('/api/states', require('./routes/states'));
+app.use('/api/tasks', require('./routes/tasks'));
+app.use('/api/leads', require('./routes/leads'));
+app.use('/api/appointment-types', require('./routes/appointmentTypes'));
 
 // Health check
 app.get('/api/health', (req, res) => {

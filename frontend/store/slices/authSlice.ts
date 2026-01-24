@@ -21,6 +21,8 @@ interface AuthState {
   isAuthenticated: boolean
   loading: boolean
   error: string | null
+  requiresTwoFactor: boolean
+  twoFactorUserId: string | null
 }
 
 const initialState: AuthState = {
@@ -29,6 +31,8 @@ const initialState: AuthState = {
   isAuthenticated: false,
   loading: false,
   error: null,
+  requiresTwoFactor: false,
+  twoFactorUserId: null,
 }
 
 // Async thunks
@@ -44,6 +48,22 @@ export const login = createAsyncThunk(
   'auth/login',
   async (credentials: { email: string; password: string }) => {
     const response = await axios.post(`${API_URL}/api/auth/login`, credentials)
+    
+    // Check if 2FA is required
+    if (response.data.requiresTwoFactor) {
+      return { requiresTwoFactor: true, userId: response.data.userId }
+    }
+    
+    const { token, user } = response.data
+    Cookies.set('token', token, { expires: 7 })
+    return { token, user, requiresTwoFactor: false }
+  }
+)
+
+export const verify2FA = createAsyncThunk(
+  'auth/verify2FA',
+  async (data: { userId: string; code: string }) => {
+    const response = await axios.post(`${API_URL}/api/auth/verify-2fa`, data)
     const { token, user } = response.data
     Cookies.set('token', token, { expires: 7 })
     return { token, user }
@@ -93,6 +113,8 @@ const authSlice = createSlice({
       state.user = null
       state.token = null
       state.isAuthenticated = false
+      state.requiresTwoFactor = false
+      state.twoFactorUserId = null
       Cookies.remove('token')
     },
     clearError: (state) => {
@@ -120,13 +142,35 @@ const authSlice = createSlice({
       })
       .addCase(login.fulfilled, (state, action) => {
         state.loading = false
-        state.token = action.payload.token
-        state.user = action.payload.user
-        state.isAuthenticated = true
+        if (action.payload.requiresTwoFactor) {
+          state.requiresTwoFactor = true
+          state.twoFactorUserId = action.payload.userId
+        } else {
+          state.token = action.payload.token
+          state.user = action.payload.user
+          state.isAuthenticated = true
+        }
       })
       .addCase(login.rejected, (state, action) => {
         state.loading = false
         state.error = action.error.message || 'Login failed'
+      })
+      // Verify 2FA
+      .addCase(verify2FA.pending, (state) => {
+        state.loading = true
+        state.error = null
+      })
+      .addCase(verify2FA.fulfilled, (state, action) => {
+        state.loading = false
+        state.token = action.payload.token
+        state.user = action.payload.user
+        state.isAuthenticated = true
+        state.requiresTwoFactor = false
+        state.twoFactorUserId = null
+      })
+      .addCase(verify2FA.rejected, (state, action) => {
+        state.loading = false
+        state.error = action.error.message || '2FA verification failed'
       })
       // Get current user
       .addCase(getCurrentUser.pending, (state) => {

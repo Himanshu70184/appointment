@@ -9,7 +9,23 @@ const router = express.Router();
 // @access  Private (Admin/Staff)
 router.get('/', [auth, authorize('admin', 'staff')], async (req, res) => {
   try {
-    const users = await User.find().select('-password').sort({ createdAt: -1 });
+    const { role } = req.query;
+    let query = {};
+    
+    // Filter by role if provided
+    if (role) {
+      const roleMap = {
+        'admin': 1,
+        'doctor': 2,
+        'patient': 3,
+        'staff': 4
+      };
+      if (roleMap[role]) {
+        query.role_id = roleMap[role];
+      }
+    }
+    
+    const users = await User.find(query).select('-password').sort({ createdAt: -1 });
     res.json({ users });
   } catch (error) {
     console.error('Get users error:', error);

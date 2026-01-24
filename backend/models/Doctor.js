@@ -27,6 +27,10 @@ const doctorSchema = new mongoose.Schema({
       type: Number, // 0 = Sunday, 6 = Saturday
       required: true
     },
+    enabled: {
+      type: Boolean,
+      default: true
+    },
     startTime: {
       type: String, // HH:mm format
       required: true
@@ -35,9 +39,21 @@ const doctorSchema = new mongoose.Schema({
       type: String, // HH:mm format
       required: true
     },
+    breakStartTime: {
+      type: String // HH:mm format (optional)
+    },
+    breakEndTime: {
+      type: String // HH:mm format (optional)
+    },
     timezone: {
       type: String,
       default: 'America/New_York'
+    },
+    effectiveFrom: {
+      type: Date
+    },
+    effectiveTo: {
+      type: Date
     }
   }],
   blockedDates: [{

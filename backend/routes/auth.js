@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
 const { auth } = require('../middleware/auth');
-const { sendWelcomeEmail, sendPasswordSetupEmail } = require('../utils/email');
+const { sendWelcomeEmail, sendPasswordSetupEmail, send2FAEmail } = require('../utils/email');
 
 const router = express.Router();
 
@@ -214,6 +214,34 @@ router.post('/login', [
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
+    // Check if 2FA is enabled for this user (admins/staff)
+    if (user.twoFactorEnabled && (user.role_id === 1 || user.role_id === 4)) {
+      // Generate 6-digit OTP
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      
+      // Hash and save OTP
+      const hashedOTP = crypto.createHash('sha256').update(otp).digest('hex');
+      user.twoFactorCode = hashedOTP;
+      user.twoFactorExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
+      await user.save();
+
+      // Development: Log OTP to console
+      console.log('\n===========================================');
+      console.log('🔐 2FA CODE for', user.email, ':', otp);
+      console.log('===========================================\n');
+
+      // Send OTP via email (don't await to avoid blocking on email errors)
+      send2FAEmail(user, otp).catch(err => {
+        console.error('Email send failed (non-blocking):', err.message);
+      });
+
+      return res.json({
+        requiresTwoFactor: true,
+        userId: user._id,
+        message: 'OTP sent to your email'
+      });
+    }
+
     const token = generateToken(user._id);
 
     res.json({
@@ -229,6 +257,75 @@ router.post('/login', [
     });
   } catch (error) {
     console.error('Login error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   POST /api/auth/verify-2fa
+// @desc    Verify 2FA code
+// @access  Public
+router.post('/verify-2fa', [
+  body('userId').notEmpty().withMessage('User ID is required'),
+  body('code').isLength({ min: 6, max: 6 }).withMessage('Code must be 6 digits')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { userId, code } = req.body;
+
+    const user = await User.findById(userId).select('+twoFactorCode +twoFactorExpires');
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (!user.twoFactorCode || !user.twoFactorExpires) {
+      return res.status(400).json({ message: 'No 2FA code requested' });
+    }
+
+    if (Date.now() > user.twoFactorExpires) {
+      return res.status(400).json({ message: '2FA code expired. Please request a new one.' });
+    }
+
+    const hashedCode = crypto.createHash('sha256').update(code).digest('hex');
+
+    // Development: Debug 2FA verification
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔍 2FA Verification Debug:');
+      console.log('   User:', user.email);
+      console.log('   Code received:', code);
+      console.log('   Hashed received:', hashedCode);
+      console.log('   Stored hash:', user.twoFactorCode);
+      console.log('   Match:', hashedCode === user.twoFactorCode);
+    }
+
+    if (hashedCode !== user.twoFactorCode) {
+      return res.status(401).json({ message: 'Invalid 2FA code' });
+    }
+
+    // Clear 2FA code
+    user.twoFactorCode = undefined;
+    user.twoFactorExpires = undefined;
+    await user.save();
+
+    const token = generateToken(user._id);
+
+    res.json({
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role_id: user.role_id,
+        prn: user.prn,
+        status: user.status
+      }
+    });
+  } catch (error) {
+    console.error('2FA verification error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });

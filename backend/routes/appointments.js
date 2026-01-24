@@ -11,7 +11,7 @@ const User = require('../models/User');
 const Notification = require('../models/Notification');
 const { auth, authorize } = require('../middleware/auth');
 const { processPayment } = require('../utils/payment');
-const { sendAppointmentNotification } = require('../utils/email');
+const { sendAppointmentNotification, sendTemplateEmail } = require('../utils/email');
 
 const router = express.Router();
 
@@ -45,6 +45,97 @@ const upload = multer({
     } else {
       cb(new Error('Only image and PDF files are allowed'));
     }
+  }
+});
+
+// @route   POST /api/appointments/admin-book
+// @desc    Admin/Staff book appointment for patient (No payment, pending approval)
+// @access  Private (Admin, Staff)
+router.post('/admin-book', [
+  auth,
+  authorize('admin', 'staff'),
+  body('patient_id').notEmpty().withMessage('Patient is required'),
+  body('doctor_id').notEmpty().withMessage('Doctor is required'),
+  body('state_id').notEmpty().withMessage('State is required'),
+  body('medicalCard_id').notEmpty().withMessage('Medical card type is required'),
+  body('appointmentDate').notEmpty().withMessage('Appointment date is required'),
+  body('appointmentTime').notEmpty().withMessage('Appointment time is required')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const {
+      patient_id,
+      doctor_id,
+      state_id,
+      medicalCard_id,
+      appointmentDate,
+      appointmentTime,
+      notes
+    } = req.body;
+
+    // Verify patient exists
+    const patient = await User.findById(patient_id);
+    if (!patient || patient.role_id !== 3) {
+      return res.status(404).json({ message: 'Patient not found' });
+    }
+
+    // Verify doctor exists
+    const doctor = await Doctor.findById(doctor_id);
+    if (!doctor) {
+      return res.status(404).json({ message: 'Doctor not found' });
+    }
+
+    // Verify medical card exists
+    const medicalCard = await MedicalCard.findById(medicalCard_id);
+    if (!medicalCard) {
+      return res.status(404).json({ message: 'Medical card type not found' });
+    }
+
+    // Create appointment with pending status (requires approval)
+    const appointment = new Appointment({
+      patient_id,
+      doctor_id,
+      state_id,
+      medicalCardType: medicalCard_id,
+      appointmentDate: new Date(appointmentDate),
+      appointmentTime,
+      status: 'pending',
+      notes: notes || '',
+      bookedBy: req.user._id, // Track who created this booking
+      requiresApproval: true
+    });
+
+    await appointment.save();
+
+    // Create notification for patient
+    await Notification.create({
+      user_id: patient_id,
+      type: 'appointment',
+      title: 'Appointment Scheduled',
+      message: `An appointment has been scheduled for you on ${appointmentDate} at ${appointmentTime}. Pending approval.`,
+      related_id: appointment._id
+    });
+
+    // Create notification for admin
+    await Notification.create({
+      user_id: req.user._id,
+      type: 'appointment',
+      title: 'Appointment Created',
+      message: `Appointment created for ${patient.firstName} ${patient.lastName}. Pending approval.`,
+      related_id: appointment._id
+    });
+
+    res.status(201).json({
+      message: 'Appointment created successfully. Pending approval.',
+      appointment
+    });
+  } catch (error) {
+    console.error('Admin book appointment error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
@@ -430,6 +521,191 @@ router.put('/:id/status', [
     });
   } catch (error) {
     console.error('Update status error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   POST /api/appointments/:id/send-email
+// @desc    Send templated email to patient
+// @access  Private (Admin, Staff)
+router.post('/:id/send-email', [
+  auth,
+  authorize(1, 4),
+  body('template').notEmpty().withMessage('Email template is required')
+], async (req, res) => {
+  try {
+    const { template, customMessage } = req.body;
+    
+    const appointment = await Appointment.findById(req.params.id)
+      .populate('patient_id doctor_id');
+
+    if (!appointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
+
+    const emailData = {
+      appointmentId: appointment._id,
+      scheduledDate: appointment.scheduledDate 
+        ? new Date(appointment.scheduledDate).toLocaleString() 
+        : 'Not scheduled',
+      doctorName: appointment.doctor_id?.name || 'Not assigned',
+      state: appointment.state,
+      documentRequest: customMessage || 'Additional documents required'
+    };
+
+    await sendTemplateEmail(appointment.patient_id, template, emailData);
+
+    // Create notification
+    await Notification.create({
+      user_id: appointment.patient_id._id,
+      type: 'email',
+      title: 'Email Sent',
+      message: `Email sent regarding your appointment`,
+      related_id: appointment._id
+    });
+
+    res.json({ message: 'Email sent successfully' });
+  } catch (error) {
+    console.error('Send email error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   POST /api/appointments/:id/approve-guardian
+// @desc    Approve guardian details for minor patient
+// @access  Private (Admin, Staff)
+router.post('/:id/approve-guardian', auth, authorize(1, 4), async (req, res) => {
+  try {
+    const appointment = await Appointment.findById(req.params.id)
+      .populate('patient_id');
+
+    if (!appointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
+
+    if (!appointment.isMinor) {
+      return res.status(400).json({ message: 'This appointment is not for a minor' });
+    }
+
+    appointment.guardianApproved = true;
+    appointment.guardianApprovedBy = req.user._id;
+    appointment.guardianApprovedAt = new Date();
+    appointment.status = 'scheduled';
+    await appointment.save();
+
+    // Create notification
+    await Notification.create({
+      user_id: appointment.patient_id._id,
+      type: 'appointment',
+      title: 'Appointment Approved',
+      message: 'Your appointment has been approved and scheduled',
+      related_id: appointment._id
+    });
+
+    res.json({ message: 'Guardian approved and appointment scheduled', appointment });
+  } catch (error) {
+    console.error('Approve guardian error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   PUT /api/appointments/:id/reschedule
+// @desc    Change appointment date and time
+// @access  Private (Admin, Staff, Patient)
+router.put('/:id/reschedule', [
+  auth,
+  body('scheduledDate').notEmpty().withMessage('Scheduled date is required'),
+  body('scheduledTime').notEmpty().withMessage('Scheduled time is required')
+], async (req, res) => {
+  try {
+    const { scheduledDate, scheduledTime, doctor_id } = req.body;
+
+    const appointment = await Appointment.findById(req.params.id)
+      .populate('patient_id');
+
+    if (!appointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
+
+    // Check authorization
+    if (req.user.role_id === 3 && appointment.patient_id._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    appointment.scheduledDate = scheduledDate;
+    appointment.scheduledTime = scheduledTime;
+    if (doctor_id) appointment.doctor_id = doctor_id;
+    appointment.status = 'rescheduled';
+    await appointment.save();
+
+    // Create notification
+    await Notification.create({
+      user_id: appointment.patient_id._id,
+      type: 'appointment',
+      title: 'Appointment Rescheduled',
+      message: `Your appointment has been rescheduled to ${new Date(scheduledDate).toLocaleString()}`,
+      related_id: appointment._id
+    });
+
+    res.json({ message: 'Appointment rescheduled', appointment });
+  } catch (error) {
+    console.error('Reschedule error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   PUT /api/appointments/:id/complete
+// @desc    Mark appointment as completed
+// @access  Private (Admin, Doctor)
+router.put('/:id/complete', auth, authorize(1, 2), async (req, res) => {
+  try {
+    const appointment = await Appointment.findById(req.params.id)
+      .populate('patient_id');
+
+    if (!appointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
+
+    appointment.status = 'completed';
+    await appointment.save();
+
+    // Create notification
+    await Notification.create({
+      user_id: appointment.patient_id._id,
+      type: 'appointment',
+      title: 'Appointment Completed',
+      message: 'Your appointment has been marked as completed',
+      related_id: appointment._id
+    });
+
+    res.json({ message: 'Appointment completed', appointment });
+  } catch (error) {
+    console.error('Complete appointment error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   PUT /api/appointments/:id/notes
+// @desc    Update admin notes for appointment
+// @access  Private (Admin, Staff)
+router.put('/:id/notes', auth, authorize(1, 4), [
+  body('adminNotes').notEmpty().withMessage('Notes are required')
+], async (req, res) => {
+  try {
+    const { adminNotes } = req.body;
+
+    const appointment = await Appointment.findById(req.params.id);
+
+    if (!appointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
+
+    appointment.adminNotes = adminNotes;
+    await appointment.save();
+
+    res.json({ message: 'Notes updated', appointment });
+  } catch (error) {
+    console.error('Update notes error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
