@@ -162,9 +162,10 @@ router.post('/', auth, authorize('admin'), [
 - **Role-Based UI**: Conditionally render components based on `user.role_id` or check in routes middleware
 
 ## Important Files Reference
-- [Frontend store configuration](frontend/store/store.ts)
-- [Backend authentication middleware](backend/middleware/auth.js)
-- [States route handlers](backend/routes/states.js)
-- [Redux state slice pattern](frontend/store/slices/authSlice.ts)
-- [API request interceptor setup](frontend/lib/api.ts)
-- [Architecture documentation](ARCHITECTURE_DIAGRAM.md)
+- [Frontend store configuration](../frontend/store/store.ts)
+- [Backend authentication middleware](../backend/middleware/auth.js)
+- [States route handlers](../backend/routes/states.js)
+- [Redux state slice pattern](../frontend/store/slices/authSlice.ts)
+- [API request interceptor setup](../frontend/lib/api.ts)
+- [Architecture documentation](../ARCHITECTURE_DIAGRAM.md)
+- [Shared type definitions](../frontend/types/index.ts)

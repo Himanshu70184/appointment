@@ -3,9 +3,11 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const { requestLogger, errorHandler, createLogger } = require('./utils/logger');
 require('dotenv').config();
 
 const app = express();
+const logger = createLogger('Server');
 
 // Security middleware
 app.use(helmet());
@@ -13,6 +15,11 @@ app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:3000',
   credentials: true
 }));
+
+// Request logging (only in development or if LOG_ALL=true)
+if (process.env.NODE_ENV === 'development' || process.env.LOG_ALL === 'true') {
+  app.use(requestLogger);
+}
 
 // Rate limiting
 const limiter = rateLimit({
@@ -33,8 +40,14 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/ehr-syste
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
-.then(() => console.log('MongoDB connected successfully'))
-.catch(err => console.error('MongoDB connection error:', err));
+.then(() => {
+  console.log('MongoDB connected successfully');
+  logger.info('MongoDB connection established');
+})
+.catch(err => {
+  console.error('MongoDB connection error:', err);
+  logger.error('MongoDB connection failed', { error: err.message });
+});
 
 // Routes
 app.use('/api/auth', require('./routes/auth'));
@@ -56,16 +69,16 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'EHR System API is running' });
 });
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(err.status || 500).json({
-    message: err.message || 'Internal Server Error',
-    error: process.env.NODE_ENV === 'development' ? err : {}
-  });
+// Error handling middleware - must be last
+app.use(errorHandler);
+
+// Handle 404
+app.use((req, res) => {
+  res.status(404).json({ message: 'Route not found' });
 });
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  logger.info(`Server started on port ${PORT}`);
 });
