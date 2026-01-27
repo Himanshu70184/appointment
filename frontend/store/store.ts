@@ -9,6 +9,7 @@ import taskReducer from './slices/taskSlice'
 import leadReducer from './slices/leadSlice'
 import appointmentTypeReducer from './slices/appointmentTypeSlice'
 import patientPortalReducer from './slices/patientPortalSlice'
+import doctorAvailabilityReducer from './slices/doctorAvailabilitySlice'
 
 export const store = configureStore({
   reducer: {
@@ -22,6 +23,7 @@ export const store = configureStore({
     leads: leadReducer,
     appointmentTypes: appointmentTypeReducer,
     patientPortal: patientPortalReducer,
+    doctorAvailability: doctorAvailabilityReducer,
   },
 })
 

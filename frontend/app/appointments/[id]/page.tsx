@@ -54,7 +54,11 @@ export default function AppointmentDetailPage() {
 
             <div>
               <h3 className="text-sm font-medium text-gray-500">Appointment Type</h3>
-              <p className="mt-1 text-lg">{appointment.appointmentType}</p>
+              <p className="mt-1 text-lg">
+                {typeof appointment.appointmentType === 'string' 
+                  ? appointment.appointmentType 
+                  : appointment.appointmentType?.name || 'N/A'}
+              </p>
             </div>
 
             {appointment.scheduledDate && (

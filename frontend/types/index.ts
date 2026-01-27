@@ -124,3 +124,27 @@ export interface Payment {
   paymentMethod: string
   createdAt: string
 }
+
+export interface DaySchedule {
+  dayOfWeek: number // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  isActive: boolean
+  startTime: string // "HH:MM" format (24-hour)
+  endTime: string // "HH:MM" format (24-hour)
+  breakStartTime: string | null
+  breakEndTime: string | null
+}
+
+export interface DoctorAvailability {
+  _id: string
+  doctor_id: string
+  states: string[]
+  weeklySchedule: DaySchedule[]
+  startDate: string
+  endDate: string
+  isActive: boolean
+  notes?: string
+  createdBy?: any
+  updatedBy?: any
+  createdAt?: string
+  updatedAt?: string
+}

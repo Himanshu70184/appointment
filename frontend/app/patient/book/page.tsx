@@ -290,6 +290,11 @@ export default function PatientBookingPage() {
         </div>
       ) : (
         <>
+          <div className="mb-4 text-sm text-gray-600">
+            {availableSlots.length > 0 && availableSlots[0].duration && (
+              <p>Appointment duration: <span className="font-semibold">{availableSlots[0].duration} minutes</span></p>
+            )}
+          </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
             {availableSlots.map((slot, index) => (
               <button
@@ -303,6 +308,9 @@ export default function PatientBookingPage() {
               >
                 <div className="font-semibold">{slot.time}</div>
                 <div className="text-xs text-gray-600">{slot.doctorName}</div>
+                {slot.duration && (
+                  <div className="text-xs text-blue-600 mt-1">{slot.duration} min</div>
+                )}
               </button>
             ))}
           </div>

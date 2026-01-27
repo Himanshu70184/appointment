@@ -279,7 +279,11 @@ export default function AppointmentDetailsPage({ params }: { params: { id: strin
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">Appointment Type</label>
-                <p className="text-gray-900">{appointment.appointmentType}</p>
+                <p className="text-gray-900">
+                  {typeof appointment.appointmentType === 'string' 
+                    ? appointment.appointmentType 
+                    : appointment.appointmentType?.name || 'N/A'}
+                </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">Adjusted Amount</label>

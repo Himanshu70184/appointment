@@ -94,7 +94,11 @@ export default function AppointmentDetailsPage() {
             <div className="space-y-3">
               <div className="flex justify-between py-2 border-b">
                 <span className="text-gray-600">Service Type:</span>
-                <span className="font-semibold">{currentAppointment.appointmentType}</span>
+                <span className="font-semibold">
+                  {typeof currentAppointment.appointmentType === 'string' 
+                    ? currentAppointment.appointmentType 
+                    : currentAppointment.appointmentType?.name || 'N/A'}
+                </span>
               </div>
               <div className="flex justify-between py-2 border-b">
                 <span className="text-gray-600">Date:</span>

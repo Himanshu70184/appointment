@@ -143,7 +143,11 @@ export default function DoctorDashboardPage() {
                         <td className="px-6 py-4 text-sm font-medium text-gray-900">
                           {appointment.patient_id.name}
                         </td>
-                        <td className="px-6 py-4 text-sm text-gray-600">{appointment.appointmentType}</td>
+                        <td className="px-6 py-4 text-sm text-gray-600">
+                          {typeof appointment.appointmentType === 'string' 
+                            ? appointment.appointmentType 
+                            : appointment.appointmentType?.name || 'N/A'}
+                        </td>
                         <td className="px-6 py-4 text-sm text-gray-600">
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
                             {appointment.state}

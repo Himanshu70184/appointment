@@ -15,7 +15,7 @@ const bcrypt = require('bcryptjs');
 const router = express.Router();
 
 // @route   GET /api/patient-portal/available-slots
-// @desc    Get available time slots for booking
+// @desc    Get available time slots for booking (dynamically generated based on appointment type duration)
 // @access  Public
 router.get('/available-slots', async (req, res) => {
   try {
@@ -27,52 +27,98 @@ router.get('/available-slots', async (req, res) => {
       });
     }
 
-    // Find doctors available in the selected state
-    const doctors = await Doctor.find({ 
-      state,
+    // Get appointment type to determine slot duration
+    const appointmentType = await AppointmentType.findById(cardType);
+    if (!appointmentType) {
+      return res.status(404).json({ message: 'Appointment type not found' });
+    }
+
+    const slotDuration = appointmentType.duration || 30; // Default to 30 minutes
+
+    // Find doctors available in the selected state using DoctorAvailability collection
+    const DoctorAvailability = require('../models/DoctorAvailability');
+    const requestedDate = new Date(date);
+    const requestedDay = requestedDate.getDay();
+
+    // Get all active doctor availabilities that cover the requested date
+    const availabilities = await DoctorAvailability.find({
+      states: state,
       isActive: true,
-      availability: { $exists: true }
-    }).populate('user_id', 'name email');
+      startDate: { $lte: requestedDate },
+      endDate: { $gte: requestedDate }
+    }).populate('doctor_id', 'name email');
 
     // Get all booked appointments for the selected date
-    const appointmentDate = new Date(date);
+    const startOfDay = new Date(requestedDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(requestedDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
     const bookedAppointments = await Appointment.find({
       scheduledDate: {
-        $gte: new Date(appointmentDate.setHours(0, 0, 0, 0)),
-        $lt: new Date(appointmentDate.setHours(23, 59, 59, 999))
+        $gte: startOfDay,
+        $lt: endOfDay
       },
       status: { $in: ['scheduled', 'approval', 'pending'] },
       state
     });
 
-    // Build available slots
+    // Build available slots dynamically
     const availableSlots = [];
-    const requestedDay = new Date(date).getDay();
-    const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-    const dayName = dayNames[requestedDay];
 
-    doctors.forEach(doctor => {
-      if (doctor.availability && doctor.availability[dayName]) {
-        const dayAvailability = doctor.availability[dayName];
-        if (dayAvailability.available) {
-          dayAvailability.slots.forEach(slot => {
-            const slotTime = slot.start;
-            
-            // Check if slot is already booked
-            const isBooked = bookedAppointments.some(apt => 
-              apt.doctor_id && 
-              apt.doctor_id.toString() === doctor.user_id._id.toString() && 
-              apt.scheduledTime === slotTime
-            );
+    availabilities.forEach(availability => {
+      if (!availability.doctor_id) return;
 
-            if (!isBooked) {
-              availableSlots.push({
-                doctor_id: doctor.user_id._id,
-                doctorName: doctor.user_id.name,
-                time: slotTime,
-                date: date
-              });
-            }
+      // Get the schedule for the requested day of week
+      const daySchedule = availability.weeklySchedule.find(
+        schedule => schedule.dayOfWeek === requestedDay
+      );
+
+      if (!daySchedule || !daySchedule.isActive) return;
+
+      // Parse working hours
+      const [startHour, startMin] = daySchedule.startTime.split(':').map(Number);
+      const [endHour, endMin] = daySchedule.endTime.split(':').map(Number);
+      const startMinutes = startHour * 60 + startMin;
+      const endMinutes = endHour * 60 + endMin;
+
+      // Parse break times (if any)
+      let breakStartMinutes = null;
+      let breakEndMinutes = null;
+      if (daySchedule.breakStartTime && daySchedule.breakEndTime) {
+        const [breakStartHour, breakStartMin] = daySchedule.breakStartTime.split(':').map(Number);
+        const [breakEndHour, breakEndMin] = daySchedule.breakEndTime.split(':').map(Number);
+        breakStartMinutes = breakStartHour * 60 + breakStartMin;
+        breakEndMinutes = breakEndHour * 60 + breakEndMin;
+      }
+
+      // Generate time slots based on appointment type duration
+      for (let minutes = startMinutes; minutes + slotDuration <= endMinutes; minutes += slotDuration) {
+        // Skip slots during break time
+        if (breakStartMinutes !== null && breakEndMinutes !== null) {
+          // Check if slot overlaps with break
+          const slotEnd = minutes + slotDuration;
+          if (minutes < breakEndMinutes && slotEnd > breakStartMinutes) {
+            continue; // Skip this slot as it overlaps with break
+          }
+        }
+
+        const slotTime = `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+        
+        // Check if slot is already booked
+        const isBooked = bookedAppointments.some(apt => 
+          apt.doctor_id && 
+          apt.doctor_id.toString() === availability.doctor_id._id.toString() && 
+          apt.scheduledTime === slotTime
+        );
+
+        if (!isBooked) {
+          availableSlots.push({
+            doctor_id: availability.doctor_id._id,
+            doctorName: availability.doctor_id.name,
+            time: slotTime,
+            date: date,
+            duration: slotDuration
           });
         }
       }
@@ -80,7 +126,9 @@ router.get('/available-slots', async (req, res) => {
 
     res.json({
       success: true,
-      slots: availableSlots
+      slots: availableSlots,
+      slotDuration: slotDuration,
+      totalSlots: availableSlots.length
     });
 
   } catch (error) {

@@ -306,15 +306,18 @@ router.put('/:id/toggle-active', [auth, authorize('admin')], async (req, res) =>
 });
 
 // @route   GET /api/doctors/:id/available-slots
-// @desc    Get available appointment slots for a doctor
+// @desc    Get available appointment slots for a doctor (with dynamic slot duration)
 // @access  Public
 router.get('/:id/available-slots', async (req, res) => {
   try {
-    const { startDate, endDate } = req.query;
+    const { startDate, endDate, duration } = req.query;
 
     if (!startDate || !endDate) {
       return res.status(400).json({ message: 'startDate and endDate are required (YYYY-MM-DD)' });
     }
+
+    // Use provided duration or default to 30 minutes
+    const slotDuration = duration ? parseInt(duration) : 30;
 
     const doctor = await Doctor.findById(req.params.id);
     if (!doctor) {
@@ -340,13 +343,13 @@ router.get('/:id/available-slots', async (req, res) => {
       const dayAvailability = doctor.availability.find(avail => avail.dayOfWeek === dayOfWeek);
       if (!dayAvailability) continue;
 
-      // Generate 30-minute slots
+      // Generate slots based on specified duration
       const [startHour, startMin] = dayAvailability.startTime.split(':').map(Number);
       const [endHour, endMin] = dayAvailability.endTime.split(':').map(Number);
       const startMinutes = startHour * 60 + startMin;
       const endMinutes = endHour * 60 + endMin;
 
-      for (let minutes = startMinutes; minutes < endMinutes; minutes += 30) {
+      for (let minutes = startMinutes; minutes + slotDuration <= endMinutes; minutes += slotDuration) {
         const slotTime = new Date(date);
         slotTime.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
 
@@ -354,7 +357,8 @@ router.get('/:id/available-slots', async (req, res) => {
           date: slotTime.toISOString().split('T')[0],
           time: `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`,
           datetime: slotTime.toISOString(),
-          timezone: dayAvailability.timezone
+          timezone: dayAvailability.timezone,
+          duration: slotDuration
         });
       }
     }
@@ -362,7 +366,8 @@ router.get('/:id/available-slots', async (req, res) => {
     res.json({
       doctor_id: doctor._id,
       availableSlots: slots,
-      totalSlots: slots.length
+      totalSlots: slots.length,
+      slotDuration: slotDuration
     });
   } catch (error) {
     console.error('Get available slots error:', error);

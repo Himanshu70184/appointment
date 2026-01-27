@@ -146,7 +146,9 @@ export default function PatientDashboardPage() {
                     <tr key={appointment._id} className="hover:bg-gray-50">
                       <td className="px-4 py-4 whitespace-nowrap text-sm">{index + 1}</td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm">
-                        {appointment.appointmentType}
+                        {typeof appointment.appointmentType === 'string' 
+                          ? appointment.appointmentType 
+                          : appointment.appointmentType?.name || 'N/A'}
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm">
                         {appointment.scheduledDate ? (

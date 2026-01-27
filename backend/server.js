@@ -62,6 +62,8 @@ app.use('/api/states', require('./routes/states'));
 app.use('/api/tasks', require('./routes/tasks'));
 app.use('/api/leads', require('./routes/leads'));
 app.use('/api/appointment-types', require('./routes/appointmentTypes'));
+app.use('/api/doctors', require('./routes/doctor-availability'));
+app.use('/api/doctor-availability', require('./routes/doctor-availability'));
 
 // Health check
 app.get('/api/health', (req, res) => {

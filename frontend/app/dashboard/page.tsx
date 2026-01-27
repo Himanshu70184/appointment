@@ -220,7 +220,9 @@ export default function DashboardPage() {
                           : 'N/A'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {appointment.appointmentType}
+                        {typeof appointment.appointmentType === 'string' 
+                          ? appointment.appointmentType 
+                          : appointment.appointmentType?.name || 'N/A'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span

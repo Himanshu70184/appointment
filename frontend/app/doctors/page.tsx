@@ -12,18 +12,23 @@ import {
   selectDoctorsLoading,
   selectDoctorsError,
 } from '@/store/slices/doctorSlice';
-import { AppDispatch } from '@/store/store';
+import { AppDispatch, RootState } from '@/store/store';
 import DoctorFormModal from '@/components/DoctorFormModal';
+import DoctorAvailabilityModal from '@/components/DoctorAvailabilityModal';
 import DashboardLayout from '@/components/DashboardLayout';
+import { getDoctorAvailabilities } from '@/store/slices/doctorAvailabilitySlice';
 
 export default function DoctorsPage() {
   const dispatch = useDispatch<AppDispatch>();
   const doctors = useSelector(selectDoctors);
   const loading = useSelector(selectDoctorsLoading);
   const error = useSelector(selectDoctorsError);
+  const { availabilities } = useSelector((state: RootState) => state.doctorAvailability);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingDoctor, setEditingDoctor] = useState<any>(null);
+  const [isAvailabilityModalOpen, setIsAvailabilityModalOpen] = useState(false);
+  const [selectedDoctor, setSelectedDoctor] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterState, setFilterState] = useState('');
   const [filterSpecialty, setFilterSpecialty] = useState('');
@@ -84,6 +89,16 @@ export default function DoctorsPage() {
     } catch (error: any) {
       alert(error || 'Failed to update doctor status');
     }
+  };
+
+  const handleManageAvailability = async (doctor: any) => {
+    setSelectedDoctor(doctor);
+    // Fetch current active availability for this doctor
+    await dispatch(getDoctorAvailabilities({ 
+      doctorId: doctor.user_id._id, 
+      current: true 
+    }));
+    setIsAvailabilityModalOpen(true);
   };
 
   const allSpecialties = Array.from(new Set(doctors.flatMap((d: any) => d.specialties))).sort();
@@ -233,6 +248,9 @@ export default function DoctorsPage() {
                       </td>
                       <td className="px-6 py-4 text-sm">
                         <div className="flex gap-2">
+                          <button onClick={() => handleManageAvailability(doctor)} className="text-teal-600 hover:text-teal-900 font-medium">
+                            Availability
+                          </button>
                           <button onClick={() => { setEditingDoctor(doctor); setIsModalOpen(true); }} className="text-blue-600 hover:text-blue-900 font-medium">
                             Edit
                           </button>
@@ -258,6 +276,16 @@ export default function DoctorsPage() {
           onSubmit={handleSubmit}
           editingDoctor={editingDoctor}
         />
+
+        {selectedDoctor && (
+          <DoctorAvailabilityModal
+            isOpen={isAvailabilityModalOpen}
+            onClose={() => { setIsAvailabilityModalOpen(false); setSelectedDoctor(null); }}
+            doctorId={selectedDoctor.user_id._id}
+            doctorName={selectedDoctor.user_id.name}
+            availability={availabilities.length > 0 ? availabilities[0] : null}
+          />
+        )}
       </div>
     </DashboardLayout>
   );

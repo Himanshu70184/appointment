@@ -14,7 +14,13 @@ export interface AppointmentStats {
 
 export interface Appointment {
   _id: string;
-  appointmentType: string;
+  appointmentType: string | {
+    _id: string;
+    name: string;
+    duration: number;
+    price: number;
+    cardValidityMonths: number;
+  };
   scheduledDate: string;
   scheduledTime: string;
   status: string;
