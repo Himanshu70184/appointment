@@ -16,11 +16,18 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const router = useRouter()
   const pathname = usePathname()
   const dispatch = useDispatch<AppDispatch>()
-  const { user, isAuthenticated } = useSelector((state: RootState) => state.auth)
+  const { user, loading: authLoading } = useSelector((state: RootState) => state.auth)
 
-  // Don't render if user is not authenticated
-  if (!isAuthenticated || !user) {
-    return null
+  // AuthGuard handles authentication checks - DashboardLayout just renders
+  // If we reach here, user is already authenticated via AuthGuard
+  
+  // Safety check: if user is still loading, show minimal loading state
+  if (!user || authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    )
   }
 
   const handleLogout = () => {
@@ -48,6 +55,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     { icon: '📋', label: 'Task', href: '/tasks', roles: [1, 4] },
     { icon: '🏷️', label: 'Coupons', href: '/coupons', roles: [1] },
     { icon: '📍', label: 'States', href: '/states', roles: [1] },
+    { icon: '📝', label: 'Intake Forms', href: '/intake-forms', roles: [1, 4] },
     { icon: '👤', label: 'Leads', href: '/leads', roles: [1, 4] },
     { icon: '⚙️', label: 'Setting', href: '/settings', roles: [1, 3, 4] },
     

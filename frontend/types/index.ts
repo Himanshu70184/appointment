@@ -27,16 +27,22 @@ export interface User {
 
 export interface Doctor {
   _id: string
-  name: string
-  email: string
-  phone: string
-  license_number: string
-  specialization: string[]
+  user_id: {
+    _id: string
+    name: string
+    email: string
+    phone?: string
+    role_id: number
+  } | string
+  licenseNumber: string
+  specialties: string[]
   states: string[]
-  maxAppointmentsPerDay: number
   consultationFee: number
-  availability: DoctorAvailability[]
-  status: 'active' | 'inactive' | 'on-leave'
+  pricing?: { [state: string]: number }
+  availability?: DoctorAvailability[]
+  isActive: boolean
+  createdAt?: string
+  updatedAt?: string
 }
 
 export interface DoctorAvailability {
@@ -178,4 +184,90 @@ export interface DoctorAvailability {
   updatedBy?: any
   createdAt?: string
   updatedAt?: string
+}
+
+// Intake Form Types
+export interface IntakeFormField {
+  fieldId: string
+  fieldType: 'text' | 'textarea' | 'number' | 'email' | 'phone' | 'date' | 'checkbox' | 'radio' | 'select' | 'file' | 'multiselect' | 'checkboxGroup'
+  label: string
+  placeholder?: string
+  helpText?: string
+  required: boolean
+  options?: Array<{ value: string; label: string }>
+  validation?: {
+    minLength?: number
+    maxLength?: number
+    min?: number
+    max?: number
+    pattern?: string
+    errorMessage?: string
+  }
+  order: number
+  conditionalLogic?: {
+    enabled: boolean
+    dependsOn?: string
+    condition?: string
+    value?: any
+  }
+}
+
+export interface IntakeFormSection {
+  sectionId: string
+  title: string
+  description?: string
+  order: number
+  fields: IntakeFormField[]
+}
+
+export interface IntakeFormTemplate {
+  _id: string
+  name: string
+  description?: string
+  version: number
+  isActive: boolean
+  isDefault: boolean
+  appointmentTypes?: string[]
+  states?: string[]
+  sections: IntakeFormSection[]
+  settings: {
+    allowSaveProgress: boolean
+    showProgressBar: boolean
+    submitButtonText: string
+    successMessage: string
+    pdfHeaderText: string
+    pdfFooterText?: string
+  }
+  createdBy: string
+  updatedBy?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface IntakeFormSubmissionField {
+  fieldId: string
+  fieldType: string
+  label: string
+  value: any
+  fileUrls?: string[]
+}
+
+export interface IntakeFormSubmission {
+  _id: string
+  appointment_id: string
+  patient_id: string
+  template_id: string
+  templateVersion: number
+  formData: IntakeFormSubmissionField[]
+  pdfUrl?: string
+  pdfGeneratedAt?: string
+  status: 'draft' | 'submitted' | 'reviewed' | 'approved' | 'rejected'
+  reviewedBy?: string
+  reviewedAt?: string
+  reviewNotes?: string
+  submittedAt?: string
+  ipAddress?: string
+  userAgent?: string
+  createdAt: string
+  updatedAt: string
 }

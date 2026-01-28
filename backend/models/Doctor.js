@@ -18,9 +18,14 @@ const doctorSchema = new mongoose.Schema({
     type: String,
     required: true
   }],
+  consultationFee: {
+    type: Number,
+    required: true,
+    default: 0
+  },
   pricing: {
     type: Map,
-    of: Number // state -> price mapping
+    of: Number // state -> price mapping (optional, for state-specific pricing)
   },
   availability: [{
     dayOfWeek: {

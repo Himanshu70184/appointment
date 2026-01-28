@@ -40,27 +40,30 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Don't do anything while initializing
-    if (isInitializing) return
+    if (isInitializing || loading) return
 
     const isPublicRoute = PUBLIC_ROUTES.some(route => pathname?.startsWith(route))
 
-    // Redirect to login if not authenticated and trying to access protected route
-    if (!isAuthenticated && !isPublicRoute) {
+    // Only redirect to login if definitely not authenticated
+    if (!isAuthenticated && !loading && !isPublicRoute) {
+      console.log('AuthGuard: Redirecting to login - not authenticated')
       router.push('/login')
+      return
     }
 
-    // Redirect to dashboard if authenticated and trying to access public route
-    if (isAuthenticated && isPublicRoute && pathname !== '/verify-email') {
+    // Only redirect away from public routes if fully authenticated with user data
+    if (isAuthenticated && user && isPublicRoute && pathname !== '/verify-email') {
+      console.log('AuthGuard: Redirecting from public route to dashboard')
       // Determine redirect based on user role
-      if (user?.role_id === 2) {
+      if (user.role_id === 2) {
         router.push('/doctor/dashboard')
-      } else if (user?.role_id === 3) {
+      } else if (user.role_id === 3) {
         router.push('/patient/dashboard')
       } else {
         router.push('/dashboard')
       }
     }
-  }, [isAuthenticated, isInitializing, pathname, router, user])
+  }, [isAuthenticated, isInitializing, pathname, user, loading])
 
   // Show loading spinner while initializing or loading
   if (isInitializing || loading) {

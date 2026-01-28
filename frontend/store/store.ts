@@ -10,6 +10,8 @@ import leadReducer from './slices/leadSlice'
 import appointmentTypeReducer from './slices/appointmentTypeSlice'
 import patientPortalReducer from './slices/patientPortalSlice'
 import doctorAvailabilityReducer from './slices/doctorAvailabilitySlice'
+import intakeFormTemplateReducer from './slices/intakeFormTemplateSlice'
+import intakeFormSubmissionReducer from './slices/intakeFormSubmissionSlice'
 
 export const store = configureStore({
   reducer: {
@@ -24,6 +26,8 @@ export const store = configureStore({
     appointmentTypes: appointmentTypeReducer,
     patientPortal: patientPortalReducer,
     doctorAvailability: doctorAvailabilityReducer,
+    intakeFormTemplates: intakeFormTemplateReducer,
+    intakeFormSubmissions: intakeFormSubmissionReducer,
   },
 })
 

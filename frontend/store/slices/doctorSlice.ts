@@ -1,4 +1,5 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
+import Cookies from 'js-cookie';
 
 interface Doctor {
   _id: string;
@@ -45,7 +46,7 @@ export const fetchDoctors = createAsyncThunk('doctors/fetchAll', async (_, { rej
 
 export const createDoctor = createAsyncThunk('doctors/create', async (formData: any, { rejectWithValue }) => {
   try {
-    const token = localStorage.getItem('token');
+    const token = Cookies.get('token');
     const response = await fetch(`${API_URL}/api/doctors`, {
       method: 'POST',
       headers: {
@@ -67,7 +68,7 @@ export const createDoctor = createAsyncThunk('doctors/create', async (formData: 
 
 export const updateDoctor = createAsyncThunk('doctors/update', async ({ id, data }: { id: string; data: any }, { rejectWithValue }) => {
   try {
-    const token = localStorage.getItem('token');
+    const token = Cookies.get('token');
     const response = await fetch(`${API_URL}/api/doctors/${id}`, {
       method: 'PUT',
       headers: {
@@ -89,7 +90,7 @@ export const updateDoctor = createAsyncThunk('doctors/update', async ({ id, data
 
 export const deleteDoctor = createAsyncThunk('doctors/delete', async (id: string, { rejectWithValue }) => {
   try {
-    const token = localStorage.getItem('token');
+    const token = Cookies.get('token');
     const response = await fetch(`${API_URL}/api/doctors/${id}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${token}` },
@@ -106,7 +107,7 @@ export const deleteDoctor = createAsyncThunk('doctors/delete', async (id: string
 
 export const toggleDoctorActive = createAsyncThunk('doctors/toggleActive', async (id: string, { rejectWithValue }) => {
   try {
-    const token = localStorage.getItem('token');
+    const token = Cookies.get('token');
     const response = await fetch(`${API_URL}/api/doctors/${id}/toggle-active`, {
       method: 'PUT',
       headers: { Authorization: `Bearer ${token}` },

@@ -58,12 +58,14 @@ router.get('/:id', async (req, res) => {
 router.post('/', [
   auth,
   authorize('admin'),
-  body('user_id').notEmpty().withMessage('User ID is required'),
-  body('licenseNumber').trim().notEmpty().withMessage('License number is required'),
-  body('specialties').isArray().withMessage('Specialties must be an array'),
-  body('states').isArray().withMessage('States must be an array'),
-  body('pricing').optional().isObject().withMessage('Pricing must be an object'),
-  body('availability').optional().isArray().withMessage('Availability must be an array')
+  body('name').trim().notEmpty().withMessage('Name is required'),
+  body('email').isEmail().withMessage('Valid email is required'),
+  body('phone').trim().notEmpty().withMessage('Phone is required'),
+  body('password').optional().isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+  body('consultationFee').isNumeric().withMessage('Consultation fee must be a number'),
+  body('licenseNumber').optional().trim(),
+  body('specialties').optional().isArray(),
+  body('states').optional().isArray()
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -71,33 +73,34 @@ router.post('/', [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { user_id, licenseNumber, specialties, states, pricing, availability } = req.body;
+    const { name, email, phone, password, consultationFee, licenseNumber, specialties, states } = req.body;
 
-    // Check if user exists and has doctor role
-    const user = await User.findById(user_id);
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-    if (user.role_id !== 2) {
-      return res.status(400).json({ message: 'User must have doctor role (role_id: 2)' });
+    // Check if user with this email already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: 'User with this email already exists' });
     }
 
-    // Check if doctor profile already exists for this user
-    const existingDoctor = await Doctor.findOne({ user_id });
-    if (existingDoctor) {
-      return res.status(400).json({ message: 'Doctor profile already exists for this user' });
-    }
+    // Create user account for doctor
+    const user = new User({
+      name,
+      email,
+      phone,
+      password, // Will be hashed by User model pre-save hook
+      role_id: 2, // Doctor role
+      state: states && states.length > 0 ? states[0] : 'CA',
+      status: 'active'
+    });
 
-    // Create pricing map if provided
-    const pricingMap = new Map(Object.entries(pricing || {}));
+    await user.save();
 
+    // Create doctor profile
     const doctor = new Doctor({
-      user_id,
-      licenseNumber: licenseNumber.toUpperCase(),
-      specialties: specialties || [],
-      states: states || [],
-      pricing: pricingMap,
-      availability: availability || [],
+      user_id: user._id,
+      licenseNumber: licenseNumber || `LIC-${Date.now()}`,
+      specialties: specialties || ['General Practice'],
+      states: states || ['CA'],
+      consultationFee: parseFloat(consultationFee) || 0,
       isActive: true
     });
 
@@ -122,11 +125,13 @@ router.post('/', [
 router.put('/:id', [
   auth,
   authorize('admin'),
+  body('name').optional().trim(),
+  body('phone').optional().trim(),
+  body('consultationFee').optional().isNumeric(),
+  body('password').optional().isLength({ min: 6 }),
   body('licenseNumber').optional().trim(),
   body('specialties').optional().isArray(),
   body('states').optional().isArray(),
-  body('pricing').optional().isObject(),
-  body('availability').optional().isArray(),
   body('isActive').optional().isBoolean()
 ], async (req, res) => {
   try {
@@ -140,18 +145,27 @@ router.put('/:id', [
       return res.status(404).json({ message: 'Doctor not found' });
     }
 
-    // Update fields
-    if (req.body.licenseNumber) doctor.licenseNumber = req.body.licenseNumber.toUpperCase();
+    // Update doctor fields
+    if (req.body.licenseNumber) doctor.licenseNumber = req.body.licenseNumber;
     if (req.body.specialties) doctor.specialties = req.body.specialties;
     if (req.body.states) doctor.states = req.body.states;
-    if (req.body.pricing) {
-      doctor.pricing = new Map(Object.entries(req.body.pricing));
-    }
-    if (req.body.availability) doctor.availability = req.body.availability;
+    if (req.body.consultationFee !== undefined) doctor.consultationFee = parseFloat(req.body.consultationFee);
     if (req.body.isActive !== undefined) doctor.isActive = req.body.isActive;
+
+    // Update user fields if provided
+    if (req.body.name || req.body.phone || req.body.password) {
+      const user = await User.findById(doctor.user_id);
+      if (user) {
+        if (req.body.name) user.name = req.body.name;
+        if (req.body.phone) user.phone = req.body.phone;
+        if (req.body.password) user.password = req.body.password; // Will be hashed by pre-save hook
+        await user.save();
+      }
+    }
 
     doctor.updatedAt = Date.now();
     await doctor.save();
+    await doctor.populate('user_id', 'name email phone');
 
     res.json({
       message: 'Doctor profile updated successfully',

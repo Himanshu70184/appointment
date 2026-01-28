@@ -88,11 +88,27 @@ const appointmentSlice = createSlice({
         state.loading = false
         state.error = action.error.message
       })
+      .addCase(getAppointments.pending, (state: any) => {
+        state.loading = true
+      })
       .addCase(getAppointments.fulfilled, (state: any, action) => {
+        state.loading = false
         state.appointments = action.payload
       })
+      .addCase(getAppointments.rejected, (state: any, action) => {
+        state.loading = false
+        state.error = action.error.message
+      })
+      .addCase(getAppointment.pending, (state: any) => {
+        state.loading = true
+      })
       .addCase(getAppointment.fulfilled, (state: any, action) => {
+        state.loading = false
         state.currentAppointment = action.payload
+      })
+      .addCase(getAppointment.rejected, (state: any, action) => {
+        state.loading = false
+        state.error = action.error.message
       })
   },
 })

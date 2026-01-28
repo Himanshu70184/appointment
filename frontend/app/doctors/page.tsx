@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
+import { useRouter } from 'next/navigation';
 import {
   fetchDoctors,
   createDoctor,
@@ -20,6 +21,7 @@ import { getDoctorAvailabilities } from '@/store/slices/doctorAvailabilitySlice'
 
 export default function DoctorsPage() {
   const dispatch = useDispatch<AppDispatch>();
+  const router = useRouter();
   const doctors = useSelector(selectDoctors);
   const loading = useSelector(selectDoctorsLoading);
   const error = useSelector(selectDoctorsError);
@@ -33,6 +35,7 @@ export default function DoctorsPage() {
   const [filterState, setFilterState] = useState('');
   const [filterSpecialty, setFilterSpecialty] = useState('');
   const [filterActive, setFilterActive] = useState('all');
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
 
   useEffect(() => {
     dispatch(fetchDoctors());
@@ -92,6 +95,7 @@ export default function DoctorsPage() {
   };
 
   const handleManageAvailability = async (doctor: any) => {
+    setOpenDropdown(null);
     setSelectedDoctor(doctor);
     // Fetch current active availability for this doctor
     await dispatch(getDoctorAvailabilities({ 
@@ -99,6 +103,30 @@ export default function DoctorsPage() {
       current: true 
     }));
     setIsAvailabilityModalOpen(true);
+  };
+
+  const handleViewDashboard = (doctor: any) => {
+    setOpenDropdown(null);
+    router.push(`/doctors/${doctor._id}`);
+  };
+
+  const handleEditDoctor = (doctor: any) => {
+    setOpenDropdown(null);
+    setEditingDoctor(doctor);
+    setIsModalOpen(true);
+  };
+
+  const handleDeleteDoctor = async (doctor: any) => {
+    setOpenDropdown(null);
+    if (window.confirm(`Delete ${doctor.user_id.name}?`)) {
+      try {
+        await dispatch(deleteDoctor(doctor._id)).unwrap();
+        alert('Doctor deleted successfully');
+        dispatch(fetchDoctors());
+      } catch (error: any) {
+        alert(error || 'Failed to delete doctor');
+      }
+    }
   };
 
   const allSpecialties = Array.from(new Set(doctors.flatMap((d: any) => d.specialties))).sort();
@@ -212,54 +240,72 @@ export default function DoctorsPage() {
               <table className="w-full">
                 <thead>
                   <tr className="bg-gray-50 border-b">
+                    <th className="px-6 py-3 text-left text-sm font-semibold">SN</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold">Name</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold">Email</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold">License</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold">Specialties</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold">States</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold">Phone</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold">Price</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold">Status</th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold">Actions</th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredDoctors.map((doctor: any) => (
+                  {filteredDoctors.map((doctor: any, index: number) => (
                     <tr key={doctor._id} className="border-b hover:bg-gray-50">
+                      <td className="px-6 py-4 text-sm text-gray-600">{index + 1}</td>
                       <td className="px-6 py-4 text-sm font-medium">{doctor.user_id.name}</td>
                       <td className="px-6 py-4 text-sm text-gray-600">{doctor.user_id.email}</td>
-                      <td className="px-6 py-4 text-sm text-gray-600">{doctor.licenseNumber}</td>
-                      <td className="px-6 py-4 text-sm">
-                        <div className="flex flex-wrap gap-1">
-                          {doctor.specialties.map((s: string) => (
-                            <span key={s} className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">{s}</span>
-                          ))}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-sm">
-                        <div className="flex flex-wrap gap-1">
-                          {doctor.states.map((s: string) => (
-                            <span key={s} className="bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded">{s}</span>
-                          ))}
-                        </div>
-                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-600">{doctor.user_id.phone || 'N/A'}</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">${doctor.consultationFee || 0}</td>
                       <td className="px-6 py-4 text-sm">
                         <span className={`px-3 py-1 rounded-full text-xs font-medium ${doctor.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
                           {doctor.isActive ? 'Active' : 'Inactive'}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm">
-                        <div className="flex gap-2">
-                          <button onClick={() => handleManageAvailability(doctor)} className="text-teal-600 hover:text-teal-900 font-medium">
-                            Availability
+                        <div className="relative">
+                          <button 
+                            onClick={() => setOpenDropdown(openDropdown === doctor._id ? null : doctor._id)}
+                            className="text-gray-600 hover:text-gray-900 font-bold text-lg"
+                            title="Actions"
+                          >
+                            ⋮
                           </button>
-                          <button onClick={() => { setEditingDoctor(doctor); setIsModalOpen(true); }} className="text-blue-600 hover:text-blue-900 font-medium">
-                            Edit
-                          </button>
-                          <button onClick={() => handleToggleActive(doctor._id, doctor.isActive)} className={`font-medium ${doctor.isActive ? 'text-orange-600 hover:text-orange-900' : 'text-green-600 hover:text-green-900'}`}>
-                            {doctor.isActive ? 'Disable' : 'Enable'}
-                          </button>
-                          <button onClick={() => handleDelete(doctor._id, doctor.user_id.name)} className="text-red-600 hover:text-red-900 font-medium">
-                            Delete
-                          </button>
+                          
+                          {openDropdown === doctor._id && (
+                            <>
+                              <div 
+                                className="fixed inset-0 z-10" 
+                                onClick={() => setOpenDropdown(null)}
+                              ></div>
+                              <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20">
+                                <button
+                                  onClick={() => handleViewDashboard(doctor)}
+                                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                                >
+                                  <span>👁️</span> View Dashboard
+                                </button>
+                                <button
+                                  onClick={() => handleEditDoctor(doctor)}
+                                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                                >
+                                  <span>✏️</span> Edit
+                                </button>
+                                <button
+                                  onClick={() => handleManageAvailability(doctor)}
+                                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                                >
+                                  <span>📅</span> Add/Edit Availability
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteDoctor(doctor)}
+                                  className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                                >
+                                  <span>🗑️</span> Delete
+                                </button>
+                              </div>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
