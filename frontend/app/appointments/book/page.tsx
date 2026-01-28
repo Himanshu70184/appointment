@@ -11,11 +11,15 @@ import api from '@/lib/api'
 import type { RootState } from '@/store/store'
 
 const bookingSchema = z.object({
-  patient_id: z.string().min(1, 'Patient is required'),
-  state: z.string().min(1, 'State is required'),
-  appointmentDate: z.string().min(1, 'Date is required'),
-  appointmentTime: z.string().min(1, 'Time is required'),
-  notes: z.string().optional(),
+  firstName: z.string().min(2, 'First name is required'),
+  lastName: z.string().min(2, 'Last name is required'),
+  email: z.string().email('Valid email is required'),
+  phone: z.string().regex(/^\d{10}$/, 'Enter 10-digit phone number'),
+  dateOfBirth: z.string().min(1, 'Date of birth is required'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+  guardianName: z.string().optional(),
+  guardianPhone: z.string().optional(),
+  guardianAddress: z.string().optional(),
 })
 
 type BookingFormData = z.infer<typeof bookingSchema>
@@ -23,22 +27,22 @@ type BookingFormData = z.infer<typeof bookingSchema>
 export default function AdminBookAppointmentPage() {
   const router = useRouter()
   const { user } = useSelector((state: RootState) => state.auth)
-  const [patients, setPatients] = useState<any[]>([])
+  const [step, setStep] = useState(1)
   const [states, setStates] = useState<any[]>([])
-  const [selectedState, setSelectedState] = useState<any>(null)
+  const [selectedState, setSelectedState] = useState('')
+  const [appointmentTypes, setAppointmentTypes] = useState<any[]>([])
+  const [selectedCardType, setSelectedCardType] = useState('')
+  const [selectedDate, setSelectedDate] = useState('')
   const [availableSlots, setAvailableSlots] = useState<any[]>([])
   const [selectedSlot, setSelectedSlot] = useState<any>(null)
-  const [medicalCards, setMedicalCards] = useState<any[]>([])
-  const [selectedCard, setSelectedCard] = useState<any>(null)
+  const [showMinorFields, setShowMinorFields] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [loadingSlots, setLoadingSlots] = useState(false)
 
-  const { register, handleSubmit, formState: { errors }, watch, setValue } = useForm<BookingFormData>({
+  const { register, handleSubmit, formState: { errors }, watch } = useForm<BookingFormData>({
     resolver: zodResolver(bookingSchema),
   })
 
-  const watchedState = watch('state')
-  const watchedDate = watch('appointmentDate')
+  const dateOfBirth = watch('dateOfBirth')
 
   useEffect(() => {
     // Check if user is admin or staff
@@ -46,311 +50,446 @@ export default function AdminBookAppointmentPage() {
       router.push('/dashboard')
       return
     }
-    fetchPatients()
     fetchStates()
   }, [user])
 
   useEffect(() => {
-    if (watchedState) {
-      const state = states.find(s => s._id === watchedState)
-      setSelectedState(state)
-      fetchMedicalCards(watchedState)
+    if (selectedState) {
+      fetchAppointmentTypes()
     }
-  }, [watchedState, states])
+  }, [selectedState])
 
   useEffect(() => {
-    if (watchedDate && selectedState) {
-      fetchAvailableSlots()
+    if (dateOfBirth) {
+      const birthDate = new Date(dateOfBirth)
+      const today = new Date()
+      const age = today.getFullYear() - birthDate.getFullYear()
+      const monthDiff = today.getMonth() - birthDate.getMonth()
+      const isMinor = age < 18 || (age === 18 && monthDiff < 0)
+      setShowMinorFields(isMinor)
     }
-  }, [watchedDate, selectedState])
-
-  const fetchPatients = async () => {
-    try {
-      const response = await api.get('/api/users?role=patient')
-      setPatients(response.data.users || [])
-    } catch (error) {
-      console.error('Failed to fetch patients:', error)
-    }
-  }
+  }, [dateOfBirth])
 
   const fetchStates = async () => {
     try {
-      const response = await api.get('/api/states?active=true')
+      const response = await api.get('/api/states?isActive=true')
       setStates(response.data.states || [])
     } catch (error) {
       console.error('Failed to fetch states:', error)
     }
   }
 
-  const fetchMedicalCards = async (stateId: string) => {
+  const fetchAppointmentTypes = async () => {
     try {
-      const response = await api.get(`/api/medcards?state=${stateId}`)
-      setMedicalCards(response.data.medicalCards || [])
-    } catch (error) {
-      console.error('Failed to fetch medical cards:', error)
-    }
-  }
-
-  const fetchAvailableSlots = async () => {
-    if (!watchedDate || !selectedState) return
-    
-    setLoadingSlots(true)
-    try {
-      const response = await api.get('/api/patient-portal/available-slots', {
-        params: {
-          date: watchedDate,
-          stateId: selectedState._id
-        }
+      const response = await api.get('/api/patient-portal/appointment-types', {
+        params: selectedState ? { state: selectedState } : {}
       })
-      setAvailableSlots(response.data.availableSlots || [])
+      setAppointmentTypes(response.data.appointmentTypes || [])
     } catch (error) {
-      console.error('Failed to fetch available slots:', error)
-      setAvailableSlots([])
-    } finally {
-      setLoadingSlots(false)
+      console.error('Failed to fetch appointment types:', error)
     }
   }
 
-  const onSubmit = async (data: BookingFormData) => {
-    if (!selectedSlot) {
-      alert('Please select a time slot')
-      return
-    }
-
-    if (!selectedCard) {
-      alert('Please select a medical card type')
+  const handleSlotSelection = async () => {
+    if (!selectedState || !selectedDate || !selectedCardType) {
+      alert('Please select state, appointment type, and date')
       return
     }
 
     setLoading(true)
     try {
-      const appointmentData = {
-        patient_id: data.patient_id,
-        doctor_id: selectedSlot.doctor._id,
-        state_id: selectedState._id,
-        medicalCard_id: selectedCard._id,
-        appointmentDate: data.appointmentDate,
-        appointmentTime: data.appointmentTime,
-        notes: data.notes,
-        status: 'pending', // Requires admin approval
-        bookedBy: user._id, // Track who created the booking
-      }
-
-      const response = await api.post('/api/appointments/admin-book', appointmentData)
-      alert('Appointment created successfully! Pending approval.')
-      router.push('/appointments')
-    } catch (error: any) {
-      alert(error.response?.data?.message || 'Failed to create appointment')
+      const response = await api.get('/api/patient-portal/available-slots', {
+        params: {
+          state: selectedState,
+          date: selectedDate,
+          cardType: selectedCardType,
+        }
+      })
+      setAvailableSlots(response.data.slots || [])
+      setStep(2)
+    } catch (error) {
+      console.error('Failed to fetch available slots:', error)
+      alert('Failed to load available slots')
     } finally {
       setLoading(false)
     }
   }
 
-  return (
-    <DashboardLayout>
-      <div className="max-w-6xl">
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold">Book Appointment for Patient</h1>
-          <p className="text-gray-600 mt-2">
-            Admin/Staff booking - No payment required. Appointment will be pending approval.
-          </p>
+  const handleSlotConfirm = () => {
+    if (!selectedSlot) {
+      alert('Please select a time slot')
+      return
+    }
+    setStep(3)
+  }
+
+  const onSubmit = async (data: BookingFormData) => {
+    const appointmentType = appointmentTypes.find((c) => c._id === selectedCardType)
+    if (!appointmentType || !selectedSlot) return
+
+    // Check for minor without guardian info
+    if (showMinorFields) {
+      if (!data.guardianName || !data.guardianPhone || !data.guardianAddress) {
+        alert('Guardian information is required for patients under 18')
+        return
+      }
+    }
+
+    setLoading(true)
+    try {
+      const bookingData = {
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: data.email,
+        phone: data.phone,
+        dateOfBirth: data.dateOfBirth,
+        password: data.password,
+        state: selectedState,
+        cardType: selectedCardType,
+        scheduledDate: selectedDate,
+        scheduledTime: selectedSlot.time,
+        doctor_id: selectedSlot.doctor_id,
+        isMinor: showMinorFields,
+        guardianName: showMinorFields ? data.guardianName : undefined,
+        guardianPhone: showMinorFields ? data.guardianPhone : undefined,
+        guardianAddress: showMinorFields ? data.guardianAddress : undefined
+      }
+
+      const response = await api.post('/api/appointments/admin-book-patient', bookingData)
+      
+      if (response.data.success) {
+        alert(`Patient registered and appointment created successfully!\nAppointment ID: ${response.data.appointment._id}`)
+        // Redirect to intake form
+        router.push(`/appointments/${response.data.appointment._id}/intake`)
+      }
+    } catch (error: any) {
+      if (error.response?.data?.slotConflict) {
+        alert(error.response.data.message)
+        setStep(2) // Go back to slot selection
+        handleSlotSelection() // Refresh slots
+      } else {
+        alert(error.response?.data?.message || 'Booking failed')
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const renderStep1 = () => (
+    <div className="card">
+      <h2 className="text-2xl font-bold mb-6">Step 1: Select Appointment Details</h2>
+
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium mb-2">Select State</label>
+          <select
+            value={selectedState}
+            onChange={(e) => setSelectedState(e.target.value)}
+            className="input w-full"
+          >
+            <option value="">Choose a state...</option>
+            {states.map((state: any) => (
+              <option key={state.code} value={state.code}>
+                {state.name}
+              </option>
+            ))}
+          </select>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-          {/* Patient Selection */}
-          <div className="card">
-            <h2 className="text-xl font-semibold mb-4">1. Select Patient</h2>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Patient
-              </label>
-              <select
-                {...register('patient_id')}
-                className="input-field"
+        <div>
+          <label className="block text-sm font-medium mb-2">Select Appointment Type</label>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {appointmentTypes.map((type) => (
+              <div
+                key={type._id}
+                onClick={() => setSelectedCardType(type._id)}
+                className={`p-4 border-2 rounded-lg cursor-pointer transition-colors ${
+                  selectedCardType === type._id
+                    ? 'border-blue-500 bg-blue-50'
+                    : 'border-gray-200 hover:border-blue-300'
+                }`}
               >
-                <option value="">-- Select Patient --</option>
-                {patients.map((patient) => (
-                  <option key={patient._id} value={patient._id}>
-                    {patient.firstName} {patient.lastName} - {patient.email}
-                  </option>
-                ))}
-              </select>
-              {errors.patient_id && (
-                <p className="mt-1 text-sm text-red-600">{errors.patient_id.message}</p>
-              )}
-            </div>
+                <h3 className="font-semibold">{type.name}</h3>
+                <p className="text-gray-600 text-sm mt-1">{type.description}</p>
+                <div className="mt-2 flex justify-between items-center">
+                  <p className="text-2xl font-bold text-blue-600">${type.price}</p>
+                  <p className="text-sm text-gray-500">{type.duration} min</p>
+                </div>
+                {type.cardValidityMonths && (
+                  <p className="text-xs text-gray-500 mt-1">Valid for {type.cardValidityMonths} months</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-2">Select Date</label>
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            min={new Date().toISOString().split('T')[0]}
+            className="input w-full"
+          />
+        </div>
+
+        <button
+          onClick={handleSlotSelection}
+          disabled={!selectedState || !selectedCardType || !selectedDate || loading}
+          className="btn-primary w-full"
+        >
+          {loading ? 'Loading slots...' : 'Continue to Time Selection'}
+        </button>
+      </div>
+    </div>
+  )
+
+  const renderStep2 = () => (
+    <div className="card">
+      <h2 className="text-2xl font-bold mb-6">Step 2: Select Time Slot</h2>
+
+      {availableSlots.length === 0 ? (
+        <div className="text-center py-8">
+          <p className="text-gray-600 mb-4">No available slots for selected date</p>
+          <button onClick={() => setStep(1)} className="btn-secondary">
+            Choose Different Date
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="mb-4 text-sm text-gray-600">
+            {availableSlots.length > 0 && availableSlots[0].duration && (
+              <p>Appointment duration: <span className="font-semibold">{availableSlots[0].duration} minutes</span></p>
+            )}
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
+            {availableSlots.map((slot, index) => (
+              <button
+                key={index}
+                onClick={() => setSelectedSlot(slot)}
+                className={`p-3 border-2 rounded-lg transition-colors ${
+                  selectedSlot?.time === slot.time && selectedSlot?.doctor_id === slot.doctor_id
+                    ? 'border-blue-500 bg-blue-50'
+                    : 'border-gray-200 hover:border-blue-300'
+                }`}
+              >
+                <div className="font-semibold">{slot.time}</div>
+                <div className="text-xs text-gray-600">{slot.doctorName}</div>
+                {slot.duration && (
+                  <div className="text-xs text-blue-600 mt-1">{slot.duration} min</div>
+                )}
+              </button>
+            ))}
           </div>
 
-          {/* State Selection */}
-          <div className="card">
-            <h2 className="text-xl font-semibold mb-4">2. Select State</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {states.map((state) => (
-                <div
-                  key={state._id}
-                  onClick={() => setValue('state', state._id)}
-                  className={`p-4 border-2 rounded-lg cursor-pointer transition-colors ${
-                    watchedState === state._id
-                      ? 'border-primary-500 bg-primary-50'
-                      : 'border-gray-200 hover:border-primary-300'
-                  }`}
-                >
-                  <h3 className="font-semibold">{state.name}</h3>
-                  <p className="text-sm text-gray-600">{state.code}</p>
-                </div>
-              ))}
-            </div>
-            {errors.state && (
-              <p className="mt-2 text-sm text-red-600">{errors.state.message}</p>
+          <div className="flex gap-3">
+            <button onClick={() => setStep(1)} className="btn-secondary flex-1">
+              Back
+            </button>
+            <button
+              onClick={handleSlotConfirm}
+              disabled={!selectedSlot}
+              className="btn-primary flex-1"
+            >
+              Continue to Patient Information
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+
+  const renderStep3 = () => (
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      <div className="card">
+        <h2 className="text-2xl font-bold mb-6">Step 3: Patient Information</h2>
+        <p className="text-sm text-gray-600 mb-4">
+          Register a new patient account (or patient can use existing email/password if they have one)
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">First Name *</label>
+            <input {...register('firstName')} className="input w-full" />
+            {errors.firstName && (
+              <p className="text-red-500 text-sm mt-1">{errors.firstName.message}</p>
             )}
           </div>
 
-          {/* Medical Card Type Selection */}
-          {selectedState && medicalCards.length > 0 && (
-            <div className="card">
-              <h2 className="text-xl font-semibold mb-4">3. Select Medical Card Type</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {medicalCards.map((card) => (
-                  <div
-                    key={card._id}
-                    onClick={() => setSelectedCard(card)}
-                    className={`p-4 border-2 rounded-lg cursor-pointer transition-colors ${
-                      selectedCard?._id === card._id
-                        ? 'border-primary-500 bg-primary-50'
-                        : 'border-gray-200 hover:border-primary-300'
-                    }`}
-                  >
-                    <h3 className="font-semibold">{card.name}</h3>
-                    <p className="text-gray-600 text-sm mt-1">{card.description}</p>
-                    <p className="text-2xl font-bold text-primary-600 mt-2">
-                      ${card.price}
-                    </p>
-                    <p className="text-sm text-gray-500 mt-1">
-                      Valid for {card.duration} months
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          <div>
+            <label className="block text-sm font-medium mb-2">Last Name *</label>
+            <input {...register('lastName')} className="input w-full" />
+            {errors.lastName && (
+              <p className="text-red-500 text-sm mt-1">{errors.lastName.message}</p>
+            )}
+          </div>
 
-          {/* Date Selection */}
-          {selectedState && (
-            <div className="card">
-              <h2 className="text-xl font-semibold mb-4">4. Select Date</h2>
+          <div>
+            <label className="block text-sm font-medium mb-2">Email *</label>
+            <input {...register('email')} type="email" className="input w-full" />
+            {errors.email && (
+              <p className="text-red-500 text-sm mt-1">{errors.email.message}</p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">Phone (10 digits) *</label>
+            <input {...register('phone')} placeholder="5551234567" className="input w-full" />
+            {errors.phone && (
+              <p className="text-red-500 text-sm mt-1">{errors.phone.message}</p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">Date of Birth *</label>
+            <input {...register('dateOfBirth')} type="date" className="input w-full" />
+            {errors.dateOfBirth && (
+              <p className="text-red-500 text-sm mt-1">{errors.dateOfBirth.message}</p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">Password *</label>
+            <input {...register('password')} type="password" className="input w-full" />
+            {errors.password && (
+              <p className="text-red-500 text-sm mt-1">{errors.password.message}</p>
+            )}
+          </div>
+        </div>
+
+        {/* Minor Guardian Fields */}
+        {showMinorFields && (
+          <div className="mt-6 p-4 border-2 border-yellow-300 bg-yellow-50 rounded-lg">
+            <h3 className="font-semibold text-yellow-800 mb-4">
+              ⚠️ Guardian Information Required (Patient is under 18)
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Appointment Date
-                </label>
-                <input
-                  {...register('appointmentDate')}
-                  type="date"
-                  min={new Date().toISOString().split('T')[0]}
-                  className="input-field"
-                />
-                {errors.appointmentDate && (
-                  <p className="mt-1 text-sm text-red-600">{errors.appointmentDate.message}</p>
+                <label className="block text-sm font-medium mb-2">Guardian Name *</label>
+                <input {...register('guardianName')} className="input w-full" />
+                {errors.guardianName && (
+                  <p className="text-red-500 text-sm mt-1">{errors.guardianName.message}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">Guardian Phone *</label>
+                <input {...register('guardianPhone')} placeholder="5551234567" className="input w-full" />
+                {errors.guardianPhone && (
+                  <p className="text-red-500 text-sm mt-1">{errors.guardianPhone.message}</p>
+                )}
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium mb-2">Guardian Address *</label>
+                <input {...register('guardianAddress')} className="input w-full" />
+                {errors.guardianAddress && (
+                  <p className="text-red-500 text-sm mt-1">{errors.guardianAddress.message}</p>
                 )}
               </div>
             </div>
-          )}
+          </div>
+        )}
+      </div>
 
-          {/* Time Slot Selection */}
-          {watchedDate && availableSlots.length > 0 && (
-            <div className="card">
-              <h2 className="text-xl font-semibold mb-4">5. Select Time Slot</h2>
-              {loadingSlots ? (
-                <p className="text-gray-600">Loading available slots...</p>
-              ) : (
-                <div className="space-y-4">
-                  {availableSlots.map((slot) => (
-                    <div
-                      key={`${slot.doctor._id}-${slot.time}`}
-                      onClick={() => {
-                        setSelectedSlot(slot)
-                        setValue('appointmentTime', slot.time)
-                      }}
-                      className={`p-4 border-2 rounded-lg cursor-pointer transition-colors ${
-                        selectedSlot?.time === slot.time && selectedSlot?.doctor._id === slot.doctor._id
-                          ? 'border-primary-500 bg-primary-50'
-                          : 'border-gray-200 hover:border-primary-300'
-                      }`}
-                    >
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <p className="font-semibold text-lg">{slot.time}</p>
-                          <p className="text-sm text-gray-600">
-                            Dr. {slot.doctor.firstName} {slot.doctor.lastName}
-                          </p>
-                          <p className="text-xs text-gray-500">{slot.doctor.specialty}</p>
-                        </div>
-                        <div className="text-right">
-                          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                            Available
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {errors.appointmentTime && (
-                <p className="mt-2 text-sm text-red-600">{errors.appointmentTime.message}</p>
-              )}
-            </div>
-          )}
+      {/* Booking Summary */}
+      <div className="card bg-blue-50 border-blue-200">
+        <h3 className="font-semibold text-lg mb-4">📋 Booking Summary</h3>
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-gray-600">State:</span>
+            <span className="font-semibold">{states.find(s => s.code === selectedState)?.name}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-600">Appointment Type:</span>
+            <span className="font-semibold">{appointmentTypes.find(t => t._id === selectedCardType)?.name}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-600">Date:</span>
+            <span className="font-semibold">{selectedDate}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-600">Time:</span>
+            <span className="font-semibold">{selectedSlot?.time}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-600">Doctor:</span>
+            <span className="font-semibold">{selectedSlot?.doctorName}</span>
+          </div>
+          <div className="flex justify-between border-t pt-2 mt-2">
+            <span className="text-gray-600">Amount:</span>
+            <span className="font-semibold text-lg text-blue-600">
+              ${appointmentTypes.find(t => t._id === selectedCardType)?.price || 0}
+            </span>
+          </div>
+          <div className="bg-green-100 border border-green-400 rounded-lg p-3 mt-4">
+            <p className="text-green-800 font-medium text-sm">
+              ✅ No payment required (Admin/Staff booking)
+            </p>
+            <p className="text-green-700 text-xs mt-1">
+              Patient account will be created and appointment will be confirmed
+            </p>
+          </div>
+        </div>
 
-          {watchedDate && !loadingSlots && availableSlots.length === 0 && (
-            <div className="card">
-              <p className="text-gray-600">No available slots for the selected date.</p>
-            </div>
-          )}
+        <div className="flex gap-3 mt-6">
+          <button
+            type="button"
+            onClick={() => setStep(2)}
+            className="btn-secondary flex-1"
+          >
+            Back
+          </button>
+          <button
+            type="submit"
+            disabled={loading}
+            className="btn-primary flex-1"
+          >
+            {loading ? 'Creating Account & Booking...' : 'Complete Booking'}
+          </button>
+        </div>
+      </div>
+    </form>
+  )
 
-          {/* Notes */}
-          {selectedSlot && (
-            <div className="card">
-              <h2 className="text-xl font-semibold mb-4">6. Additional Notes (Optional)</h2>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Notes
-                </label>
-                <textarea
-                  {...register('notes')}
-                  rows={4}
-                  className="input-field"
-                  placeholder="Any special requirements or notes..."
-                />
+  return (
+    <DashboardLayout>
+      <div className="max-w-4xl mx-auto">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold">Book Appointment for Patient</h1>
+          <p className="text-gray-600 mt-2">
+            Admin/Staff booking - Register patient and create appointment (no payment required)
+          </p>
+          
+          {/* Progress Indicator */}
+          <div className="flex items-center justify-center mt-6 space-x-4">
+            <div className={`flex items-center ${step >= 1 ? 'text-blue-600' : 'text-gray-400'}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${step >= 1 ? 'border-blue-600 bg-blue-50' : 'border-gray-300'}`}>
+                1
               </div>
+              <span className="ml-2 text-sm font-medium hidden md:inline">Details</span>
             </div>
-          )}
-
-          {/* Submit Button */}
-          {selectedSlot && selectedCard && (
-            <div className="card bg-primary-50 border-primary-200">
-              <div className="mb-4">
-                <h3 className="font-semibold text-lg mb-2">Booking Summary</h3>
-                <div className="space-y-1 text-sm">
-                  <p><strong>State:</strong> {selectedState.name}</p>
-                  <p><strong>Card Type:</strong> {selectedCard.name}</p>
-                  <p><strong>Date:</strong> {watchedDate}</p>
-                  <p><strong>Time:</strong> {selectedSlot.time}</p>
-                  <p><strong>Doctor:</strong> Dr. {selectedSlot.doctor.firstName} {selectedSlot.doctor.lastName}</p>
-                  <p><strong>Amount:</strong> ${selectedCard.price}</p>
-                  <p className="text-orange-600 font-medium mt-2">
-                    ⚠️ No payment required. Appointment will be pending approval.
-                  </p>
-                </div>
+            <div className={`h-0.5 w-16 ${step >= 2 ? 'bg-blue-600' : 'bg-gray-300'}`}></div>
+            <div className={`flex items-center ${step >= 2 ? 'text-blue-600' : 'text-gray-400'}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${step >= 2 ? 'border-blue-600 bg-blue-50' : 'border-gray-300'}`}>
+                2
               </div>
-              <button
-                type="submit"
-                disabled={loading}
-                className="btn-primary w-full"
-              >
-                {loading ? 'Creating Appointment...' : 'Create Appointment (Pending Approval)'}
-              </button>
+              <span className="ml-2 text-sm font-medium hidden md:inline">Time Slot</span>
             </div>
-          )}
-        </form>
+            <div className={`h-0.5 w-16 ${step >= 3 ? 'bg-blue-600' : 'bg-gray-300'}`}></div>
+            <div className={`flex items-center ${step >= 3 ? 'text-blue-600' : 'text-gray-400'}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${step >= 3 ? 'border-blue-600 bg-blue-50' : 'border-gray-300'}`}>
+                3
+              </div>
+              <span className="ml-2 text-sm font-medium hidden md:inline">Patient Info</span>
+            </div>
+          </div>
+        </div>
+
+        {step === 1 && renderStep1()}
+        {step === 2 && renderStep2()}
+        {step === 3 && renderStep3()}
       </div>
     </DashboardLayout>
   )

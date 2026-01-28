@@ -17,6 +17,12 @@ export interface User {
   zipCode?: string
   emergencyContact?: string
   emergencyPhone?: string
+  isMinor?: boolean
+  guardianName?: string
+  guardianPhone?: string
+  guardianAddress?: string
+  createdAt?: string
+  updatedAt?: string
 }
 
 export interface Doctor {
