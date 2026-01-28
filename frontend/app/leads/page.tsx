@@ -10,24 +10,19 @@ import type { AppDispatch, RootState } from '@/store/store'
 export default function LeadsPage() {
   const router = useRouter()
   const dispatch = useDispatch<AppDispatch>()
-  const { user, isAuthenticated } = useSelector((state: RootState) => state.auth)
+  const { user } = useSelector((state: RootState) => state.auth)
   const { leads, loading, success, error } = useSelector((state: RootState) => state.leads)
   const [selectedLead, setSelectedLead] = useState<any>(null)
   const [showStatusModal, setShowStatusModal] = useState(false)
   const [newStatus, setNewStatus] = useState('')
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      router.push('/login')
-      return
-    }
-    
     if (user && (user.role_id === 1 || user.role_id === 4)) {
       dispatch(getLeads())
-    } else {
+    } else if (user) {
       router.push('/dashboard')
     }
-  }, [isAuthenticated, user, router, dispatch])
+  }, [user, router, dispatch])
 
   const handleUpdateStatus = async () => {
     if (!selectedLead || !newStatus) return

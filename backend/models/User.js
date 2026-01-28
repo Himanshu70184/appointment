@@ -24,7 +24,10 @@ const userSchema = new mongoose.Schema({
   },
   state: {
     type: String,
-    required: true
+    required: function() {
+      // State is required only for patients (role_id = 3)
+      return this.role_id === 3;
+    }
   },
   role_id: {
     type: Number,

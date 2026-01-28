@@ -19,14 +19,9 @@ export default function PatientDashboardPage() {
   const { user } = useSelector((state: RootState) => state.auth)
 
   useEffect(() => {
-    if (!user || user.role_id !== 3) {
-      router.push('/login')
-      return
-    }
-
     dispatch(getDashboardStats())
     dispatch(getPatientAppointments())
-  }, [dispatch, user, router])
+  }, [dispatch])
 
   const getStatusBadgeColor = (status: string) => {
     const colors: Record<string, string> = {

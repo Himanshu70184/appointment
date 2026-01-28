@@ -15,24 +15,19 @@ import type { AppDispatch, RootState } from '@/store/store'
 export default function DashboardPage() {
   const router = useRouter()
   const dispatch = useDispatch<AppDispatch>()
-  const { user, isAuthenticated, loading } = useSelector((state: RootState) => state.auth)
+  const { user } = useSelector((state: RootState) => state.auth)
   const { appointments } = useSelector((state: RootState) => state.appointments)
   const [stats, setStats] = useState<any>(null)
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list')
 
   useEffect(() => {
-    if (!isAuthenticated && !loading) {
-      router.push('/login')
-      return
-    }
-    
-    if (isAuthenticated && user) {
+    if (user) {
       dispatch(getAppointments())
       if (user.role_id === 1) {
         fetchAdminStats()
       }
     }
-  }, [isAuthenticated, loading, router, dispatch, user])
+  }, [user, dispatch])
 
   const fetchAdminStats = async () => {
     try {
@@ -48,7 +43,7 @@ export default function DashboardPage() {
     }
   }
 
-  if (loading) {
+  if (!user) {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center h-64">
@@ -56,10 +51,6 @@ export default function DashboardPage() {
         </div>
       </DashboardLayout>
     )
-  }
-
-  if (!user) {
-    return null
   }
 
   // Calculate appointment statistics

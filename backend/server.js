@@ -11,10 +11,34 @@ const logger = createLogger('Server');
 
 // Security middleware
 app.use(helmet());
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+
+// CORS configuration - Allow both localhost and network access
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Allow localhost and any IP address on port 3000
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://127.0.0.1:3000',
+      process.env.FRONTEND_URL
+    ];
+    
+    // Also allow any origin from the local network (e.g., http://192.168.x.x:3000)
+    if (origin.match(/^http:\/\/(localhost|127\.0\.0\.1|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):3000$/)) {
+      return callback(null, true);
+    }
+    
+    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
+      callback(null, true);
+    } else {
+      callback(null, true); // For development, allow all origins
+    }
+  },
   credentials: true
-}));
+};
+app.use(cors(corsOptions));
 
 // Request logging (only in development or if LOG_ALL=true)
 if (process.env.NODE_ENV === 'development' || process.env.LOG_ALL === 'true') {
@@ -79,7 +103,29 @@ app.use((req, res) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  logger.info(`Server started on port ${PORT}`);
+const HOST = '0.0.0.0'; // Listen on all network interfaces
+
+// Get local network IP
+const os = require('os');
+function getNetworkIP() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return 'localhost';
+}
+
+app.listen(PORT, HOST, () => {
+  const networkIP = getNetworkIP();
+  console.log('\n═══════════════════════════════════════════════════');
+  console.log('  EHR System Backend API - Running');
+  console.log('═══════════════════════════════════════════════════');
+  console.log(`  📱 Local:    http://localhost:${PORT}`);
+  console.log(`  🌐 Network:  http://${networkIP}:${PORT}`);
+  console.log('═══════════════════════════════════════════════════\n');
+  logger.info(`Server started on ${HOST}:${PORT} (Network: ${networkIP}:${PORT})`);
 });

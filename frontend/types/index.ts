@@ -57,6 +57,31 @@ export interface State {
   notes?: string
 }
 
+export interface Staff {
+  _id: string
+  user_id: string | User
+  name: string
+  email: string
+  phone: string
+  department: 'Admin' | 'Reception' | 'Support' | 'Billing' | 'Medical Records' | 'Other'
+  designation: string
+  permissions: {
+    canManageAppointments?: boolean
+    canManagePatients?: boolean
+    canManageLeads?: boolean
+    canManageTasks?: boolean
+    canViewReports?: boolean
+    canManageDoctors?: boolean
+  }
+  status: 'active' | 'inactive' | 'on-leave'
+  joinDate: string
+  notes?: string
+  createdBy?: string
+  updatedBy?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
 export interface Appointment {
   _id: string
   patient_id: string

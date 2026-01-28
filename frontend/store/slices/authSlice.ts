@@ -3,7 +3,16 @@ import axios from 'axios'
 import Cookies from 'js-cookie'
 import type { User } from '@/types'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
+// Smart API URL detection - same logic as api.ts
+const getAPIUrl = () => {
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+      return `http://${hostname}:5000`;
+    }
+  }
+  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+};
 
 interface AuthState {
   user: User | null
@@ -29,7 +38,7 @@ const initialState: AuthState = {
 export const register = createAsyncThunk(
   'auth/register',
   async (userData: { name: string; email: string; phone: string; state: string; appointmentType?: string }) => {
-    const response = await axios.post(`${API_URL}/api/auth/register`, userData)
+    const response = await axios.post(`${getAPIUrl()}/api/auth/register`, userData)
     return response.data
   }
 )
@@ -37,7 +46,7 @@ export const register = createAsyncThunk(
 export const login = createAsyncThunk(
   'auth/login',
   async (credentials: { email: string; password: string }) => {
-    const response = await axios.post(`${API_URL}/api/auth/login`, credentials)
+    const response = await axios.post(`${getAPIUrl()}/api/auth/login`, credentials)
     
     // Check if 2FA is required
     if (response.data.requiresTwoFactor) {
@@ -53,7 +62,7 @@ export const login = createAsyncThunk(
 export const verify2FA = createAsyncThunk(
   'auth/verify2FA',
   async (data: { userId: string; code: string }) => {
-    const response = await axios.post(`${API_URL}/api/auth/verify-2fa`, data)
+    const response = await axios.post(`${getAPIUrl()}/api/auth/verify-2fa`, data)
     const { token, user } = response.data
     Cookies.set('token', token, { expires: 7 })
     return { token, user }
@@ -70,7 +79,7 @@ export const getCurrentUser = createAsyncThunk(
       throw new Error('No token available')
     }
 
-    const response = await axios.get(`${API_URL}/api/auth/me`, {
+    const response = await axios.get(`${getAPIUrl()}/api/auth/me`, {
       headers: { Authorization: `Bearer ${token}` }
     })
     return response.data.user
@@ -80,7 +89,7 @@ export const getCurrentUser = createAsyncThunk(
 export const verifyEmail = createAsyncThunk(
   'auth/verifyEmail',
   async (token: string) => {
-    const response = await axios.get(`${API_URL}/api/auth/verify-email?token=${token}`)
+    const response = await axios.get(`${getAPIUrl()}/api/auth/verify-email?token=${token}`)
     return response.data
   }
 )
@@ -88,7 +97,7 @@ export const verifyEmail = createAsyncThunk(
 export const setupPassword = createAsyncThunk(
   'auth/setupPassword',
   async (data: { token: string; password: string }) => {
-    const response = await axios.post(`${API_URL}/api/auth/setup-password`, data)
+    const response = await axios.post(`${getAPIUrl()}/api/auth/setup-password`, data)
     const { token, user } = response.data
     Cookies.set('token', token, { expires: 7 })
     return { token, user }

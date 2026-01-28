@@ -42,17 +42,12 @@ export default function SettingsPage() {
   })
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      router.push('/login')
-      return
-    }
-    
     if (user && user.role_id === 1) {
       dispatch(getAppointmentTypes())
-    } else {
+    } else if (user) {
       router.push('/dashboard')
     }
-  }, [isAuthenticated, user, router, dispatch])
+  }, [user, router, dispatch])
 
   const openCreateModal = () => {
     setEditingType(null)

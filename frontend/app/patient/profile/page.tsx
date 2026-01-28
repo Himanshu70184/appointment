@@ -57,8 +57,8 @@ export default function PatientProfilePage() {
   })
 
   useEffect(() => {
-    if (!user || user.role_id !== 3) {
-      router.push('/login')
+    if (user && user.role_id !== 3) {
+      router.push('/patient/dashboard')
     }
   }, [user, router])
 

@@ -8,18 +8,13 @@ import DashboardLayout from '@/components/DashboardLayout'
 import type { AppDispatch, RootState } from '@/store/store'
 
 export default function AppointmentsPage() {
-  const router = useRouter()
   const dispatch = useDispatch<AppDispatch>()
-  const { user, isAuthenticated } = useSelector((state: RootState) => state.auth)
+  const { user } = useSelector((state: RootState) => state.auth)
   const { appointments } = useSelector((state: RootState) => state.appointments)
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      router.push('/login')
-    } else {
-      dispatch(getAppointments())
-    }
-  }, [isAuthenticated, router, dispatch])
+    dispatch(getAppointments())
+  }, [dispatch])
 
   return (
     <DashboardLayout>

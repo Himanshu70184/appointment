@@ -10,21 +10,16 @@ import type { AppDispatch, RootState } from '@/store/store'
 export default function TasksPage() {
   const router = useRouter()
   const dispatch = useDispatch<AppDispatch>()
-  const { user, isAuthenticated } = useSelector((state: RootState) => state.auth)
+  const { user } = useSelector((state: RootState) => state.auth)
   const { tasks, loading, success, error } = useSelector((state: RootState) => state.tasks)
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      router.push('/login')
-      return
-    }
-    
     if (user && (user.role_id === 1 || user.role_id === 4)) {
       dispatch(getTasks())
-    } else {
+    } else if (user) {
       router.push('/dashboard')
     }
-  }, [isAuthenticated, user, router, dispatch])
+  }, [user, router, dispatch])
 
   const handleDeleteTask = async (taskId: string) => {
     if (!confirm('Are you sure you want to delete this task?')) return

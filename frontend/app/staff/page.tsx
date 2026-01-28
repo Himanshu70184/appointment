@@ -5,24 +5,26 @@ import { useSelector } from 'react-redux'
 import DashboardLayout from '@/components/DashboardLayout'
 import api from '@/lib/api'
 import type { RootState } from '@/store/store'
-import type { User } from '@/types'
+import type { Staff } from '@/types'
 
 export default function StaffPage() {
   const { user } = useSelector((state: RootState) => state.auth)
-  const [staff, setStaff] = useState<User[]>([])
-  const [filteredStaff, setFilteredStaff] = useState<User[]>([])
+  const [staff, setStaff] = useState<Staff[]>([])
+  const [filteredStaff, setFilteredStaff] = useState<Staff[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
   const [showModal, setShowModal] = useState(false)
-  const [editingStaff, setEditingStaff] = useState<User | null>(null)
+  const [editingStaff, setEditingStaff] = useState<Staff | null>(null)
   const [alert, setAlert] = useState<{ type: 'success' | 'error', message: string } | null>(null)
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     phone: '',
     password: '',
-    status: 'active'
+    status: 'active',
+    department: 'Support',
+    designation: 'Staff Member'
   })
 
   useEffect(() => {
@@ -40,8 +42,8 @@ export default function StaffPage() {
   const fetchStaff = async () => {
     try {
       setLoading(true)
-      const response = await api.get('/api/users?role=staff')
-      setStaff(response.data.users || [])
+      const response = await api.get('/api/admin/staff')
+      setStaff(response.data.staff || [])
     } catch (error) {
       console.error('Failed to fetch staff:', error)
       showAlert('error', 'Failed to load staff members')
@@ -75,7 +77,7 @@ export default function StaffPage() {
     setTimeout(() => setAlert(null), 5000)
   }
 
-  const openModal = (staffMember: User | null = null) => {
+  const openModal = (staffMember: Staff | null = null) => {
     if (staffMember) {
       setEditingStaff(staffMember)
       setFormData({
@@ -83,7 +85,9 @@ export default function StaffPage() {
         email: staffMember.email || '',
         phone: staffMember.phone || '',
         password: '',
-        status: staffMember.status || 'active'
+        status: staffMember.status || 'active',
+        department: staffMember.department || 'Support',
+        designation: staffMember.designation || 'Staff Member'
       })
     } else {
       setEditingStaff(null)
@@ -92,7 +96,9 @@ export default function StaffPage() {
         email: '',
         phone: '',
         password: '',
-        status: 'active'
+        status: 'active',
+        department: 'Support',
+        designation: 'Staff Member'
       })
     }
     setShowModal(true)
@@ -106,7 +112,9 @@ export default function StaffPage() {
       email: '',
       phone: '',
       password: '',
-      status: 'active'
+      status: 'active',
+      department: 'Support',
+      designation: 'Staff Member'
     })
   }
 
@@ -129,7 +137,6 @@ export default function StaffPage() {
         name: formData.name,
         email: formData.email,
         phone: formData.phone,
-        role_id: 4, // Staff role
         status: formData.status
       }
 
@@ -138,12 +145,12 @@ export default function StaffPage() {
       }
 
       if (editingStaff) {
-        // Update existing staff
-        await api.put(`/api/users/${editingStaff.id}`, payload)
+        // Update existing staff using admin endpoint
+        await api.put(`/api/admin/staff/${editingStaff._id}`, payload)
         showAlert('success', 'Staff member updated successfully')
       } else {
-        // Create new staff
-        await api.post('/api/auth/register', payload)
+        // Create new staff using admin endpoint
+        await api.post('/api/admin/staff', payload)
         showAlert('success', 'Staff member created successfully')
       }
 
@@ -158,7 +165,7 @@ export default function StaffPage() {
     if (!confirm('Are you sure you want to delete this staff member?')) return
 
     try {
-      await api.delete(`/api/users/${staffId}`)
+      await api.delete(`/api/admin/staff/${staffId}`)
       showAlert('success', 'Staff member deleted successfully')
       fetchStaff()
     } catch (error: any) {
@@ -166,10 +173,10 @@ export default function StaffPage() {
     }
   }
 
-  const toggleStatus = async (staffMember: User) => {
+  const toggleStatus = async (staffMember: Staff) => {
     try {
       const newStatus = staffMember.status === 'active' ? 'inactive' : 'active'
-      await api.put(`/api/users/${staffMember.id}`, { status: newStatus })
+      await api.put(`/api/admin/staff/${staffMember._id}`, { status: newStatus })
       showAlert('success', `Staff member ${newStatus === 'active' ? 'activated' : 'deactivated'}`)
       fetchStaff()
     } catch (error: any) {
@@ -288,7 +295,7 @@ export default function StaffPage() {
                   </tr>
                 ) : (
                   filteredStaff.map((staffMember, index) => (
-                    <tr key={staffMember.id} className="hover:bg-gray-50">
+                    <tr key={staffMember._id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {index + 1}
                       </td>
@@ -323,7 +330,7 @@ export default function StaffPage() {
                           Edit
                         </button>
                         <button
-                          onClick={() => handleDelete(staffMember.id)}
+                          onClick={() => handleDelete(staffMember._id)}
                           className="text-red-600 hover:text-red-900"
                         >
                           Delete
