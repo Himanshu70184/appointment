@@ -48,7 +48,8 @@ router.get('/available-slots', async (req, res) => {
       endDate: { $gte: requestedDate }
     }).populate('doctor_id', 'name email');
 
-    // Get all booked appointments for the selected date
+    // Get all booked appointments for the selected date (across ALL states)
+    // Because a doctor can only be in one appointment at a time, regardless of state
     const startOfDay = new Date(requestedDate);
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(requestedDate);
@@ -59,8 +60,20 @@ router.get('/available-slots', async (req, res) => {
         $gte: startOfDay,
         $lt: endOfDay
       },
-      status: { $in: ['scheduled', 'approval', 'pending'] },
-      state
+      status: { $in: ['scheduled', 'approval', 'pending', 'completed'] } // All non-cancelled appointments hold the slot
+      // Note: Removed state filter - doctor can't be in two places at once!
+    });
+
+    console.log('Available slots request:', {
+      date: requestedDate.toISOString(),
+      state,
+      totalBookedAppointments: bookedAppointments.length,
+      bookedSlots: bookedAppointments.map(a => ({
+        time: a.scheduledTime,
+        doctor: a.doctor_id,
+        status: a.status,
+        bookedBy: a.bookedBy
+      }))
     });
 
     // Build available slots dynamically
@@ -120,6 +133,8 @@ router.get('/available-slots', async (req, res) => {
             date: date,
             duration: slotDuration
           });
+        } else {
+          console.log(`Slot ${slotTime} is booked, filtering out`);
         }
       }
     });
@@ -756,13 +771,16 @@ router.get('/appointment-types', async (req, res) => {
     if (state) {
       filter.$or = [
         { states: state }, // Appointment type specifically for this state
-        { states: { $size: 0 } } // Appointment type available in all states (empty array)
+        { states: [] },    // Appointment type available in all states (empty array)
+        { states: { $exists: false } } // Field doesn't exist (backward compatibility)
       ];
     }
 
     const appointmentTypes = await AppointmentType.find(filter)
       .select('name description price duration cardValidityMonths states')
       .sort({ price: 1 });
+
+    console.log(`Fetched ${appointmentTypes.length} appointment types for state: ${state || 'all'}`);
 
     res.json({
       success: true,

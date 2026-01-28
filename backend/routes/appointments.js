@@ -139,6 +139,196 @@ router.post('/admin-book', [
   }
 });
 
+// @route   POST /api/appointments/admin-book-patient
+// @desc    Admin/Staff book appointment with patient registration (No payment)
+// @access  Private (Admin, Staff)
+router.post('/admin-book-patient', [
+  auth,
+  authorize('admin', 'staff'),
+  body('firstName').trim().notEmpty().withMessage('First name is required'),
+  body('lastName').trim().notEmpty().withMessage('Last name is required'),
+  body('email').isEmail().withMessage('Valid email is required'),
+  body('phone').matches(/^\d{10}$/).withMessage('Valid 10-digit phone number is required'),
+  body('dateOfBirth').isISO8601().withMessage('Valid date of birth is required'),
+  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+  body('state').notEmpty().withMessage('State is required'),
+  body('cardType').notEmpty().withMessage('Appointment type is required'),
+  body('scheduledDate').isISO8601().withMessage('Scheduled date is required'),
+  body('scheduledTime').notEmpty().withMessage('Scheduled time is required'),
+  body('doctor_id').notEmpty().withMessage('Doctor selection is required')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const {
+      firstName,
+      lastName,
+      email,
+      phone,
+      dateOfBirth,
+      password,
+      state,
+      cardType,
+      scheduledDate,
+      scheduledTime,
+      doctor_id,
+      isMinor,
+      guardianName,
+      guardianPhone,
+      guardianAddress
+    } = req.body;
+
+    // Check if user already exists
+    let user = await User.findOne({ email: email.toLowerCase() });
+    let isNewUser = false;
+
+    if (!user) {
+      isNewUser = true;
+    }
+
+    // Validate guardian info for minors
+    if (isMinor) {
+      if (!guardianName || !guardianPhone || !guardianAddress) {
+        return res.status(400).json({
+          message: 'Guardian information (name, phone, address) is required for patients under 18',
+          isMinor: true
+        });
+      }
+    }
+
+    // Get appointment type details
+    const appointmentType = await AppointmentType.findById(cardType);
+    if (!appointmentType) {
+      return res.status(404).json({ message: 'Appointment type not found' });
+    }
+
+    // Check slot availability
+    const existingAppointment = await Appointment.findOne({
+      scheduledDate: new Date(scheduledDate),
+      scheduledTime,
+      doctor_id,
+      status: { $in: ['scheduled', 'approval', 'pending'] }
+    });
+
+    if (existingAppointment) {
+      return res.status(409).json({
+        message: 'This slot has been booked by someone else. Please choose another slot.',
+        slotConflict: true
+      });
+    }
+
+    // Create user account if new
+    if (isNewUser) {
+      user = new User({
+        name: `${firstName} ${lastName}`,
+        firstName,
+        lastName,
+        email: email.toLowerCase(),
+        phone,
+        dateOfBirth,
+        password,
+        state,
+        role_id: 3, // Patient
+        isMinor,
+        guardianName: isMinor ? guardianName : undefined,
+        guardianPhone: isMinor ? guardianPhone : undefined,
+        guardianAddress: isMinor ? guardianAddress : undefined,
+        status: 'active' // Active immediately for admin-created accounts
+      });
+
+      await user.save();
+      console.log('New patient created:', { id: user._id, name: user.name, email: user.email });
+    } else {
+      console.log('Using existing patient:', { id: user._id, name: user.name, email: user.email });
+    }
+
+    // Create appointment (no payment required for admin/staff booking)
+    const appointment = new Appointment({
+      patient_id: user._id,
+      doctor_id,
+      appointmentType: cardType,
+      scheduledDate: new Date(scheduledDate),
+      scheduledTime,
+      state,
+      status: 'pending', // All admin/staff bookings need approval before scheduling
+      isMinor,
+      paymentCompleted: true, // Mark as completed (no payment required)
+      intakeSubmitted: false,
+      bookedBy: req.user._id // Track who created this booking
+    });
+
+    await appointment.save();
+    console.log('Appointment created:', {
+      appointmentId: appointment._id,
+      patientId: user._id,
+      patientName: user.name,
+      bookedByAdminId: req.user._id,
+      bookedByAdminName: req.user.name
+    });
+
+    // Create notification for patient
+    await Notification.create({
+      user_id: user._id,
+      type: 'appointment',
+      title: 'Appointment Pending Approval',
+      message: `Your appointment for ${new Date(scheduledDate).toLocaleDateString()} at ${scheduledTime} is pending admin approval.`,
+      related_id: appointment._id
+    });
+
+    // Create notification for admin/staff who created it
+    await Notification.create({
+      user_id: req.user._id,
+      type: 'appointment',
+      title: 'Appointment Created',
+      message: `Appointment created for ${user.firstName} ${user.lastName}.`,
+      related_id: appointment._id
+    });
+
+    // Send email notification to patient
+    try {
+      await sendTemplateEmail(
+        user.email,
+        'appointment-confirmation',
+        {
+          patientName: user.firstName,
+          appointmentDate: new Date(scheduledDate).toLocaleDateString(),
+          appointmentTime: scheduledTime,
+          appointmentType: appointmentType.name,
+          appointmentId: appointment._id
+        }
+      );
+    } catch (emailError) {
+      console.error('Failed to send confirmation email:', emailError);
+      // Continue even if email fails
+    }
+
+    res.status(201).json({
+      success: true,
+      message: `${isNewUser ? 'Patient registered and appointment created' : 'Appointment created'} successfully`,
+      appointment: {
+        _id: appointment._id,
+        patient_id: user._id,
+        scheduledDate: appointment.scheduledDate,
+        scheduledTime: appointment.scheduledTime,
+        status: appointment.status
+      },
+      patient: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        isNewUser
+      }
+    });
+
+  } catch (error) {
+    console.error('Admin book patient appointment error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
 // @route   POST /api/appointments
 // @desc    Create new appointment with payment
 // @access  Private (Patient)
