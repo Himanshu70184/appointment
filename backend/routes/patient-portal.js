@@ -4,6 +4,7 @@ const Appointment = require('../models/Appointment');
 const Payment = require('../models/Payment');
 const AppointmentType = require('../models/AppointmentType');
 const Doctor = require('../models/Doctor');
+const DoctorAvailability = require('../models/DoctorAvailability');
 const User = require('../models/User');
 const Coupon = require('../models/Coupon');
 const State = require('../models/State');
@@ -11,8 +12,110 @@ const { auth, authorize } = require('../middleware/auth');
 const { processPayment } = require('../utils/payment');
 const { sendTemplateEmail } = require('../utils/email');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 const router = express.Router();
+
+const getCheapestAvailableDoctor = async ({ state, date, time, slotDuration }) => {
+  const requestedDate = new Date(date);
+  const requestedDay = requestedDate.getDay();
+
+  const availabilities = await DoctorAvailability.find({
+    states: state,
+    isActive: true,
+    startDate: { $lte: requestedDate },
+    endDate: { $gte: requestedDate }
+  }).populate('doctor_id', 'name email');
+
+  if (!availabilities.length) {
+    return null;
+  }
+
+  const doctorUserIds = availabilities
+    .map(a => a.doctor_id && a.doctor_id._id)
+    .filter(Boolean);
+
+  const doctors = await Doctor.find({
+    user_id: { $in: doctorUserIds },
+    isActive: true
+  }).select('user_id consultationFee');
+
+  const doctorMap = new Map(
+    doctors.map(d => [d.user_id.toString(), d])
+  );
+
+  const startOfDay = new Date(requestedDate);
+  startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date(requestedDate);
+  endOfDay.setHours(23, 59, 59, 999);
+
+  const bookedAppointments = await Appointment.find({
+    scheduledDate: {
+      $gte: startOfDay,
+      $lt: endOfDay
+    },
+    status: { $in: ['scheduled', 'approval', 'pending', 'completed'] }
+  });
+
+  const [slotHour, slotMin] = time.split(':').map(Number);
+  const slotStartMinutes = slotHour * 60 + slotMin;
+  const slotEndMinutes = slotStartMinutes + slotDuration;
+
+  const candidates = [];
+
+  availabilities.forEach((availability) => {
+    if (!availability.doctor_id) return;
+
+    const doctorDoc = doctorMap.get(availability.doctor_id._id.toString());
+    if (!doctorDoc) return;
+
+    const daySchedule = availability.weeklySchedule.find(
+      schedule => schedule.dayOfWeek === requestedDay
+    );
+
+    if (!daySchedule || !daySchedule.isActive) return;
+
+    const [startHour, startMin] = daySchedule.startTime.split(':').map(Number);
+    const [endHour, endMin] = daySchedule.endTime.split(':').map(Number);
+    const startMinutes = startHour * 60 + startMin;
+    const endMinutes = endHour * 60 + endMin;
+
+    if (slotStartMinutes < startMinutes || slotEndMinutes > endMinutes) return;
+
+    let breakStartMinutes = null;
+    let breakEndMinutes = null;
+    if (daySchedule.breakStartTime && daySchedule.breakEndTime) {
+      const [breakStartHour, breakStartMin] = daySchedule.breakStartTime.split(':').map(Number);
+      const [breakEndHour, breakEndMin] = daySchedule.breakEndTime.split(':').map(Number);
+      breakStartMinutes = breakStartHour * 60 + breakStartMin;
+      breakEndMinutes = breakEndHour * 60 + breakEndMin;
+    }
+
+    if (breakStartMinutes !== null && breakEndMinutes !== null) {
+      if (slotStartMinutes < breakEndMinutes && slotEndMinutes > breakStartMinutes) {
+        return;
+      }
+    }
+
+    const isBooked = bookedAppointments.some(apt => 
+      apt.doctor_id && 
+      apt.doctor_id.toString() === availability.doctor_id._id.toString() && 
+      apt.scheduledTime === time
+    );
+
+    if (!isBooked) {
+      candidates.push({
+        doctorId: availability.doctor_id._id,
+        consultationFee: doctorDoc.consultationFee || 0
+      });
+    }
+  });
+
+  if (candidates.length === 0) return null;
+
+  candidates.sort((a, b) => a.consultationFee - b.consultationFee);
+  return candidates[0].doctorId;
+};
 
 // @route   GET /api/patient-portal/available-slots
 // @desc    Get available time slots for booking (dynamically generated based on appointment type duration)
@@ -36,7 +139,6 @@ router.get('/available-slots', async (req, res) => {
     const slotDuration = appointmentType.duration || 30; // Default to 30 minutes
 
     // Find doctors available in the selected state using DoctorAvailability collection
-    const DoctorAvailability = require('../models/DoctorAvailability');
     const requestedDate = new Date(date);
     const requestedDay = requestedDate.getDay();
 
@@ -47,6 +149,17 @@ router.get('/available-slots', async (req, res) => {
       startDate: { $lte: requestedDate },
       endDate: { $gte: requestedDate }
     }).populate('doctor_id', 'name email');
+
+    const doctorUserIds = availabilities
+      .map(a => a.doctor_id && a.doctor_id._id)
+      .filter(Boolean);
+
+    const activeDoctors = await Doctor.find({
+      user_id: { $in: doctorUserIds },
+      isActive: true
+    }).select('user_id');
+
+    const activeDoctorSet = new Set(activeDoctors.map(d => d.user_id.toString()));
 
     // Get all booked appointments for the selected date (across ALL states)
     // Because a doctor can only be in one appointment at a time, regardless of state
@@ -77,10 +190,11 @@ router.get('/available-slots', async (req, res) => {
     });
 
     // Build available slots dynamically
-    const availableSlots = [];
+    const availableSlotMap = new Map();
 
     availabilities.forEach(availability => {
       if (!availability.doctor_id) return;
+      if (!activeDoctorSet.has(availability.doctor_id._id.toString())) return;
 
       // Get the schedule for the requested day of week
       const daySchedule = availability.weeklySchedule.find(
@@ -126,18 +240,21 @@ router.get('/available-slots', async (req, res) => {
         );
 
         if (!isBooked) {
-          availableSlots.push({
-            doctor_id: availability.doctor_id._id,
-            doctorName: availability.doctor_id.name,
-            time: slotTime,
-            date: date,
-            duration: slotDuration
-          });
+          if (!availableSlotMap.has(slotTime)) {
+            availableSlotMap.set(slotTime, {
+              time: slotTime,
+              date: date
+            });
+          }
         } else {
           console.log(`Slot ${slotTime} is booked, filtering out`);
         }
       }
     });
+
+    const availableSlots = Array.from(availableSlotMap.values()).sort((a, b) =>
+      a.time.localeCompare(b.time)
+    );
 
     res.json({
       success: true,
@@ -169,7 +286,6 @@ router.post('/book-appointment', [
   body('cardType').notEmpty().withMessage('Card type is required'),
   body('scheduledDate').isISO8601().withMessage('Scheduled date is required'),
   body('scheduledTime').notEmpty().withMessage('Scheduled time is required'),
-  body('doctor_id').notEmpty().withMessage('Doctor selection is required'),
   body('payment').isObject().withMessage('Payment information is required')
 ], async (req, res) => {
   try {
@@ -189,7 +305,6 @@ router.post('/book-appointment', [
       cardType,
       scheduledDate,
       scheduledTime,
-      doctor_id,
       payment: paymentData,
       couponCode,
       guardianName,
@@ -254,11 +369,26 @@ router.post('/book-appointment', [
       }
     }
 
+    const slotDuration = appointmentType.duration || 30;
+    const assignedDoctorId = await getCheapestAvailableDoctor({
+      state,
+      date: scheduledDate,
+      time: scheduledTime,
+      slotDuration
+    });
+
+    if (!assignedDoctorId) {
+      return res.status(409).json({
+        message: 'No doctors are available for this time slot. Please choose another time.',
+        slotConflict: true
+      });
+    }
+
     // Check slot availability one more time before creating appointment
     const existingAppointment = await Appointment.findOne({
       scheduledDate: new Date(scheduledDate),
       scheduledTime,
-      doctor_id,
+      doctor_id: assignedDoctorId,
       status: { $in: ['scheduled', 'approval', 'pending'] }
     });
 
@@ -295,7 +425,7 @@ router.post('/book-appointment', [
     // Status: 'pending' initially, will be updated after payment
     const appointment = new Appointment({
       patient_id: user._id,
-      doctor_id,
+      doctor_id: assignedDoctorId,
       appointmentType: cardType, // Now ObjectId reference
       scheduledDate: new Date(scheduledDate),
       scheduledTime,
@@ -372,6 +502,10 @@ router.post('/book-appointment', [
       console.error('Failed to send confirmation email:', emailError);
     }
 
+    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
+      expiresIn: process.env.JWT_EXPIRES_IN || '7d'
+    });
+
     res.status(201).json({
       success: true,
       message: isMinor 
@@ -390,6 +524,7 @@ router.post('/book-appointment', [
         name: user.name,
         isMinor: user.isMinor
       },
+      token,
       isNewUser,
       redirectToIntake: true
     });

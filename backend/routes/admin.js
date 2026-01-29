@@ -140,38 +140,49 @@ router.get('/dashboard', async (req, res) => {
 
     let revenueData = null;
     if (isAdmin) {
-      // Get revenue data by state
-      const revenueByState = await Payment.aggregate([
-        { $match: { status: 'completed' } },
+      const revenuePipelineBase = [
+        { $match: { payment_id: { $ne: null } } },
         {
           $lookup: {
-            from: 'appointments',
-            localField: 'appointment_id',
+            from: 'payments',
+            localField: 'payment_id',
             foreignField: '_id',
-            as: 'appointment'
+            as: 'payment'
           }
         },
-        { $unwind: '$appointment' },
+        { $unwind: '$payment' },
+        { $match: { 'payment.status': 'completed' } },
+        {
+          $addFields: {
+            revenueAmount: {
+              $cond: [
+                { $eq: ['$status', 'cancelled'] },
+                { $multiply: ['$payment.amount', -1] },
+                '$payment.amount'
+              ]
+            },
+            revenueDate: { $ifNull: ['$scheduledDate', '$createdAt'] }
+          }
+        }
+      ];
+
+      const revenueByState = await Appointment.aggregate([
+        ...revenuePipelineBase,
         {
           $group: {
-            _id: '$appointment.state',
-            total: { $sum: '$amount' }
+            _id: '$state',
+            total: { $sum: '$revenueAmount' }
           }
         }
       ]);
 
-      // Get monthly revenue for graph
-      const monthlyRevenue = await Payment.aggregate([
-        {
-          $match: {
-            status: 'completed',
-            createdAt: { $gte: new Date(now.getFullYear(), 0, 1) }
-          }
-        },
+      const monthlyRevenue = await Appointment.aggregate([
+        ...revenuePipelineBase,
+        { $match: { revenueDate: { $gte: new Date(now.getFullYear(), 0, 1) } } },
         {
           $group: {
-            _id: { $month: '$createdAt' },
-            total: { $sum: '$amount' }
+            _id: { $month: '$revenueDate' },
+            total: { $sum: '$revenueAmount' }
           }
         },
         { $sort: { _id: 1 } }
@@ -182,9 +193,14 @@ router.get('/dashboard', async (req, res) => {
         monthlyRevenueData[item._id - 1] = item.total;
       });
 
-      const totalRevenue = await Payment.aggregate([
-        { $match: { status: 'completed' } },
-        { $group: { _id: null, total: { $sum: '$amount' } } }
+      const totalRevenue = await Appointment.aggregate([
+        ...revenuePipelineBase,
+        {
+          $group: {
+            _id: null,
+            total: { $sum: '$revenueAmount' }
+          }
+        }
       ]);
 
       revenueData = {

@@ -184,7 +184,7 @@ export default function PatientDashboardPage() {
                         {appointment.status === 'pending' && !appointment.intakeSubmitted && (
                           <button
                             onClick={() =>
-                              router.push(`/patient/intake/${appointment._id}`)
+                              router.push(`/patient/intake-form/${appointment._id}`)
                             }
                             className="text-green-600 hover:text-green-800"
                           >

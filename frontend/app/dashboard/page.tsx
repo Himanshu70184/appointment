@@ -17,29 +17,31 @@ export default function DashboardPage() {
   const dispatch = useDispatch<AppDispatch>()
   const { user } = useSelector((state: RootState) => state.auth)
   const { appointments } = useSelector((state: RootState) => state.appointments)
-  const [stats, setStats] = useState<any>(null)
+  const [dashboardData, setDashboardData] = useState<any>(null)
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list')
 
   useEffect(() => {
     if (user) {
+      if (user.role_id === 3) {
+        router.replace('/patient/dashboard')
+        return
+      }
       dispatch(getAppointments())
       if (user.role_id === 1) {
         fetchAdminStats()
       }
     }
-  }, [user, dispatch])
+  }, [user, dispatch, router])
 
   const fetchAdminStats = async () => {
     try {
-      const response = await api.get('/api/admin/stats')
-      if (response.data && response.data.stats) {
-        setStats(response.data.stats)
-      }
+      const response = await api.get('/api/admin/dashboard')
+      setDashboardData(response.data || null)
     } catch (error: any) {
       console.error('Failed to fetch admin stats:', error)
       // Don't block dashboard rendering if stats fail
       // Stats will be null, but dashboard will still render
-      setStats(null)
+      setDashboardData(null)
     }
   }
 
@@ -62,6 +64,26 @@ export default function DashboardPage() {
   const completedAppointments = appointments.filter((a: any) => a.status === 'completed').length
   const pendingAppointments = appointments.filter((a: any) => a.status === 'pending').length
   const onHoldAppointments = appointments.filter((a: any) => a.status === 'on-hold').length
+
+  const buildMonthlyAppointments = () => {
+    const monthly = Array(12).fill(0)
+    appointments.forEach((appointment: any) => {
+      const dateValue = appointment.scheduledDate || appointment.createdAt
+      if (!dateValue) return
+      const date = new Date(dateValue)
+      if (!Number.isNaN(date.getTime())) {
+        monthly[date.getMonth()] += 1
+      }
+    })
+    return monthly
+  }
+
+  const appointmentChartData = user?.role_id === 1 && dashboardData?.monthlyAppointments?.length === 12
+    ? dashboardData.monthlyAppointments
+    : buildMonthlyAppointments()
+
+  const revenueMonthlyData = dashboardData?.revenue?.monthly || []
+  const revenueTotal = dashboardData?.revenue?.total || 0
 
   return (
     <DashboardLayout>
@@ -138,10 +160,12 @@ export default function DashboardPage() {
       {/* Charts Row */}
       <div className={`grid gap-6 mb-6 ${user?.role_id === 1 ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
         {/* Recent Appointments Chart */}
-        <AppointmentChart />
+        <AppointmentChart data={appointmentChartData} />
 
         {/* Revenue Chart - Only for Admin */}
-        {user?.role_id === 1 && <RevenueChart />}
+        {user?.role_id === 1 && (
+          <RevenueChart data={revenueMonthlyData} total={revenueTotal} />
+        )}
       </div>
 
       {/* Recent Appointments List/Calendar View */}

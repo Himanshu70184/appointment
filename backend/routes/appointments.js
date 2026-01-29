@@ -7,6 +7,7 @@ const Appointment = require('../models/Appointment');
 const Payment = require('../models/Payment');
 const AppointmentType = require('../models/AppointmentType');
 const Doctor = require('../models/Doctor');
+const DoctorAvailability = require('../models/DoctorAvailability');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
 const { auth, authorize } = require('../middleware/auth');
@@ -14,6 +15,105 @@ const { processPayment } = require('../utils/payment');
 const { sendAppointmentNotification, sendTemplateEmail } = require('../utils/email');
 
 const router = express.Router();
+
+const findCheapestAvailableDoctor = async ({ state, date, time, slotDuration }) => {
+  const requestedDate = new Date(date);
+  const requestedDay = requestedDate.getDay();
+
+  const availabilities = await DoctorAvailability.find({
+    states: state,
+    isActive: true,
+    startDate: { $lte: requestedDate },
+    endDate: { $gte: requestedDate }
+  }).populate('doctor_id', 'name email');
+
+  if (!availabilities.length) return null;
+
+  const doctorUserIds = availabilities
+    .map(a => a.doctor_id && a.doctor_id._id)
+    .filter(Boolean);
+
+  const doctors = await Doctor.find({
+    user_id: { $in: doctorUserIds },
+    isActive: true
+  }).select('user_id consultationFee');
+
+  const doctorMap = new Map(
+    doctors.map(d => [d.user_id.toString(), d])
+  );
+
+  const startOfDay = new Date(requestedDate);
+  startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date(requestedDate);
+  endOfDay.setHours(23, 59, 59, 999);
+
+  const bookedAppointments = await Appointment.find({
+    scheduledDate: {
+      $gte: startOfDay,
+      $lt: endOfDay
+    },
+    status: { $in: ['scheduled', 'approval', 'pending', 'completed'] }
+  });
+
+  const [slotHour, slotMin] = time.split(':').map(Number);
+  const slotStartMinutes = slotHour * 60 + slotMin;
+  const slotEndMinutes = slotStartMinutes + slotDuration;
+
+  const candidates = [];
+
+  availabilities.forEach((availability) => {
+    if (!availability.doctor_id) return;
+
+    const doctorDoc = doctorMap.get(availability.doctor_id._id.toString());
+    if (!doctorDoc) return;
+
+    const daySchedule = availability.weeklySchedule.find(
+      schedule => schedule.dayOfWeek === requestedDay
+    );
+
+    if (!daySchedule || !daySchedule.isActive) return;
+
+    const [startHour, startMin] = daySchedule.startTime.split(':').map(Number);
+    const [endHour, endMin] = daySchedule.endTime.split(':').map(Number);
+    const startMinutes = startHour * 60 + startMin;
+    const endMinutes = endHour * 60 + endMin;
+
+    if (slotStartMinutes < startMinutes || slotEndMinutes > endMinutes) return;
+
+    let breakStartMinutes = null;
+    let breakEndMinutes = null;
+    if (daySchedule.breakStartTime && daySchedule.breakEndTime) {
+      const [breakStartHour, breakStartMin] = daySchedule.breakStartTime.split(':').map(Number);
+      const [breakEndHour, breakEndMin] = daySchedule.breakEndTime.split(':').map(Number);
+      breakStartMinutes = breakStartHour * 60 + breakStartMin;
+      breakEndMinutes = breakEndHour * 60 + breakEndMin;
+    }
+
+    if (breakStartMinutes !== null && breakEndMinutes !== null) {
+      if (slotStartMinutes < breakEndMinutes && slotEndMinutes > breakStartMinutes) {
+        return;
+      }
+    }
+
+    const isBooked = bookedAppointments.some(apt => 
+      apt.doctor_id && 
+      apt.doctor_id.toString() === availability.doctor_id._id.toString() && 
+      apt.scheduledTime === time
+    );
+
+    if (!isBooked) {
+      candidates.push({
+        doctorId: availability.doctor_id._id,
+        consultationFee: doctorDoc.consultationFee || 0
+      });
+    }
+  });
+
+  if (candidates.length === 0) return null;
+
+  candidates.sort((a, b) => a.consultationFee - b.consultationFee);
+  return candidates[0].doctorId;
+};
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -154,8 +254,7 @@ router.post('/admin-book-patient', [
   body('state').notEmpty().withMessage('State is required'),
   body('cardType').notEmpty().withMessage('Appointment type is required'),
   body('scheduledDate').isISO8601().withMessage('Scheduled date is required'),
-  body('scheduledTime').notEmpty().withMessage('Scheduled time is required'),
-  body('doctor_id').notEmpty().withMessage('Doctor selection is required')
+  body('scheduledTime').notEmpty().withMessage('Scheduled time is required')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -174,7 +273,6 @@ router.post('/admin-book-patient', [
       cardType,
       scheduledDate,
       scheduledTime,
-      doctor_id,
       isMinor,
       guardianName,
       guardianPhone,
@@ -205,11 +303,26 @@ router.post('/admin-book-patient', [
       return res.status(404).json({ message: 'Appointment type not found' });
     }
 
+    const slotDuration = appointmentType.duration || 30;
+    const assignedDoctorId = await findCheapestAvailableDoctor({
+      state,
+      date: scheduledDate,
+      time: scheduledTime,
+      slotDuration
+    });
+
+    if (!assignedDoctorId) {
+      return res.status(409).json({
+        message: 'No doctors are available for this time slot. Please choose another time.',
+        slotConflict: true
+      });
+    }
+
     // Check slot availability
     const existingAppointment = await Appointment.findOne({
       scheduledDate: new Date(scheduledDate),
       scheduledTime,
-      doctor_id,
+      doctor_id: assignedDoctorId,
       status: { $in: ['scheduled', 'approval', 'pending'] }
     });
 
@@ -248,7 +361,7 @@ router.post('/admin-book-patient', [
     // Create appointment (no payment required for admin/staff booking)
     const appointment = new Appointment({
       patient_id: user._id,
-      doctor_id,
+      doctor_id: assignedDoctorId,
       appointmentType: cardType,
       scheduledDate: new Date(scheduledDate),
       scheduledTime,

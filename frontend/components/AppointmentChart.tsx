@@ -25,7 +25,7 @@ ChartJS.register(
 )
 
 interface AppointmentChartProps {
-  data?: { month: string; count: number }[]
+  data?: number[]
 }
 
 export default function AppointmentChart({ data }: AppointmentChartProps) {
@@ -36,7 +36,7 @@ export default function AppointmentChart({ data }: AppointmentChartProps) {
     datasets: [
       {
         label: 'Appointments',
-        data: data?.map(d => d.count) || months.map(() => Math.floor(Math.random() * 50)),
+        data: data && data.length === 12 ? data : months.map(() => 0),
         borderColor: '#22c55e',
         backgroundColor: 'rgba(34, 197, 94, 0.1)',
         fill: true,

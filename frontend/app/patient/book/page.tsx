@@ -16,6 +16,7 @@ import {
 } from '@/store/slices/patientPortalSlice'
 import type { AppDispatch, RootState } from '@/store/store'
 import api from '@/lib/api'
+import Cookies from 'js-cookie'
 
 const bookingSchema = z.object({
   firstName: z.string().min(2, 'First name is required'),
@@ -45,7 +46,7 @@ type BookingFormData = z.infer<typeof bookingSchema>
 export default function PatientBookingPage() {
   const router = useRouter()
   const dispatch = useDispatch<AppDispatch>()
-  const { states, availableSlots, loading, error, success } = useSelector(
+  const { states, availableSlots, slotDuration, loading, error, success } = useSelector(
     (state: RootState) => state.patientPortal
   )
 
@@ -53,9 +54,10 @@ export default function PatientBookingPage() {
   const [selectedState, setSelectedState] = useState('')
   const [selectedCardType, setSelectedCardType] = useState('')
   const [selectedDate, setSelectedDate] = useState('')
-  const [selectedSlot, setSelectedSlot] = useState<any>(null)
+  const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
   const [appointmentTypes, setAppointmentTypes] = useState<any[]>([])
   const [showMinorFields, setShowMinorFields] = useState(false)
+  const [slotsRequested, setSlotsRequested] = useState(false)
   const [couponCode, setCouponCode] = useState('')
   const [couponData, setCouponData] = useState<any>(null)
   const [finalAmount, setFinalAmount] = useState(0)
@@ -77,6 +79,15 @@ export default function PatientBookingPage() {
   }, [dispatch])
 
   useEffect(() => {
+    fetchAppointmentTypes()
+  }, [selectedState])
+
+  useEffect(() => {
+    setSelectedSlot(null)
+    setSlotsRequested(false)
+  }, [selectedState, selectedCardType, selectedDate])
+
+  useEffect(() => {
     if (dateOfBirth) {
       const birthDate = new Date(dateOfBirth)
       const today = new Date()
@@ -90,7 +101,7 @@ export default function PatientBookingPage() {
   const fetchAppointmentTypes = async () => {
     try {
       const response = await api.get('/api/patient-portal/appointment-types', {
-        params: selectedState ? { state: selectedState } : {}
+        params: selectedState ? { state: selectedState } : {},
       })
       setAppointmentTypes(response.data.appointmentTypes || [])
     } catch (error) {
@@ -103,7 +114,7 @@ export default function PatientBookingPage() {
       alert('Please select state, card type, and date')
       return
     }
-
+    setSlotsRequested(true)
     dispatch(
       getAvailableSlots({
         state: selectedState,
@@ -111,7 +122,6 @@ export default function PatientBookingPage() {
         cardType: selectedCardType,
       })
     )
-    setStep(2)
   }
 
   const handleSlotConfirm = () => {
@@ -119,7 +129,32 @@ export default function PatientBookingPage() {
       alert('Please select a time slot')
       return
     }
-    setStep(3)
+    setStep(2)
+  }
+
+  const getSlotTime = (slot: any) => {
+    if (!slot) return ''
+    if (typeof slot === 'string') return slot
+    if (typeof slot.time === 'string') return slot.time
+    if (typeof slot.startTime === 'string') return slot.startTime
+    return ''
+  }
+
+  const formatTimeRange = (startTime: string, duration: number | null) => {
+    if (!duration) return startTime
+    const [startHour, startMin] = startTime.split(':').map(Number)
+    const startMinutes = startHour * 60 + startMin
+    const endMinutes = startMinutes + duration
+    const endHour = Math.floor(endMinutes / 60) % 24
+    const endMin = endMinutes % 60
+
+    const format12h = (hour: number, min: number) => {
+      const period = hour >= 12 ? 'PM' : 'AM'
+      const hour12 = hour % 12 === 0 ? 12 : hour % 12
+      return `${String(hour12).padStart(2, '0')}:${String(min).padStart(2, '0')} ${period}`
+    }
+
+    return `${format12h(startHour, startMin)} - ${format12h(endHour, endMin)}`
   }
 
   const handleCouponValidation = async () => {
@@ -156,8 +191,7 @@ export default function PatientBookingPage() {
       state: selectedState,
       cardType: selectedCardType,
       scheduledDate: selectedDate,
-      scheduledTime: selectedSlot.time,
-      doctor_id: selectedSlot.doctor_id,
+      scheduledTime: selectedSlot,
       couponCode: couponData ? couponCode : undefined,
       guardianName: showMinorFields ? data.guardianName : undefined,
       guardianPhone: showMinorFields ? data.guardianPhone : undefined,
@@ -177,16 +211,18 @@ export default function PatientBookingPage() {
 
     try {
       const result = await dispatch(bookAppointment(bookingData)).unwrap()
-      
+
       if (result.success) {
-        // Store appointment ID and redirect to intake form
+        if (result.token) {
+          Cookies.set('token', result.token, { expires: 7 })
+        }
         localStorage.setItem('pendingIntakeAppointment', result.appointment._id)
-        router.push(`/patient/intake/${result.appointment._id}`)
+        router.push(`/patient/intake-form/${result.appointment._id}`)
       }
     } catch (err: any) {
       if (err.slotConflict) {
         alert(err.message)
-        setStep(2) // Go back to slot selection
+        setStep(1)
         dispatch(
           getAvailableSlots({
             state: selectedState,
@@ -203,139 +239,149 @@ export default function PatientBookingPage() {
   }
 
   const renderStep1 = () => (
-    <div className="card">
-      <h2 className="text-2xl font-bold mb-6">Step 1: Select Appointment Details</h2>
+    <div className="grid grid-cols-1 gap-6">
+      <div>
+        <div className="card">
+          <h2 className="text-2xl font-bold mb-6">Step 1: Select Appointment Details</h2>
 
-      <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium mb-2">Select State</label>
-          <select
-            value={selectedState}
-            onChange={(e) => setSelectedState(e.target.value)}
-            className="input w-full"
-          >
-            <option value="">Choose a state...</option>
-            {states.map((state: any) => (
-              <option key={state.code} value={state.code}>
-                {state.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium mb-2">Select Appointment Type</label>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {appointmentTypes.map((type) => (
-              <div
-                key={type._id}
-                onClick={() => {
-                  setSelectedCardType(type._id)
-                  setFinalAmount(type.price)
-                }}
-                className={`p-4 border-2 rounded-lg cursor-pointer transition-colors ${
-                  selectedCardType === type._id
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-200 hover:border-blue-300'
-                }`}
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">Select State</label>
+              <select
+                value={selectedState}
+                onChange={(e) => setSelectedState(e.target.value)}
+                className="input w-full"
               >
-                <h3 className="font-semibold">{type.name}</h3>
-                <p className="text-gray-600 text-sm mt-1">{type.description}</p>
-                <div className="mt-2 flex justify-between items-center">
-                  <p className="text-2xl font-bold text-blue-600">${type.price}</p>
-                  <p className="text-sm text-gray-500">{type.duration} min</p>
-                </div>
-                {type.cardValidityMonths && (
-                  <p className="text-xs text-gray-500 mt-1">Valid for {type.cardValidityMonths} months</p>
-                )}
+                <option value="">Choose a state...</option>
+                {states.map((state: any) => (
+                  <option key={state.code} value={state.code}>
+                    {state.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">Select Appointment Type</label>
+              <div className="grid grid-cols-2 gap-3">
+                {appointmentTypes.map((type) => (
+                  <div
+                    key={type._id}
+                    onClick={() => {
+                      setSelectedCardType(type._id)
+                      setFinalAmount(type.price)
+                    }}
+                    className={`p-4 border-2 rounded-lg cursor-pointer transition-colors ${
+                      selectedCardType === type._id
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-200 hover:border-blue-300'
+                    }`}
+                  >
+                    <h3 className="font-semibold">{type.name}</h3>
+                    <p className="text-gray-600 text-sm mt-1">{type.description}</p>
+                    <div className="mt-2 flex justify-between items-center">
+                      <p className="text-2xl font-bold text-blue-600">${type.price}</p>
+                      <p className="text-sm text-gray-500">{type.duration} min</p>
+                    </div>
+                    {type.cardValidityMonths && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Valid for {type.cardValidityMonths} months
+                      </p>
+                    )}
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">Select Date</label>
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                min={new Date().toISOString().split('T')[0]}
+                className="input w-full"
+              />
+            </div>
+
+            <button
+              onClick={handleSlotSelection}
+              disabled={!selectedState || !selectedCardType || !selectedDate}
+              className="btn-primary w-full"
+            >
+              Find Available Times
+            </button>
           </div>
         </div>
+      </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-2">Select Date</label>
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            min={new Date().toISOString().split('T')[0]}
-            className="input w-full"
-          />
+      <div>
+        <div className="card">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-semibold">Select Time</h3>
+            {selectedDate && (
+              <span className="text-sm text-gray-600">
+                {new Date(selectedDate).toLocaleDateString()}
+              </span>
+            )}
+          </div>
+
+          <div className="max-h-[480px] overflow-y-auto pr-1">
+            {!slotsRequested && (
+              <div className="text-gray-500 text-sm">
+                Choose your state, appointment type, and date to see available times.
+              </div>
+            )}
+
+            {slotsRequested && !loading && availableSlots.length === 0 && (
+              <div className="text-gray-500 text-sm">No available times for the selected date.</div>
+            )}
+
+            {availableSlots.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {availableSlots.map((slot: any) => {
+                  const slotTime = getSlotTime(slot)
+                  if (!slotTime) return null
+                  return (
+                  <button
+                    key={slotTime}
+                    type="button"
+                    onClick={() => setSelectedSlot(slotTime)}
+                    className={`p-3 rounded-lg border-2 text-left transition-colors ${
+                      selectedSlot === slotTime
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-200 hover:border-blue-300'
+                    }`}
+                  >
+                    <div className="font-semibold text-gray-900">
+                      {formatTimeRange(slotTime, slotDuration)}
+                    </div>
+                  </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="mt-6 flex gap-3">
+            <button
+              type="button"
+              onClick={handleSlotConfirm}
+              disabled={!selectedSlot}
+              className="btn-primary flex-1"
+            >
+              Continue to Your Information
+            </button>
+          </div>
         </div>
-
-        <button
-          onClick={handleSlotSelection}
-          disabled={!selectedState || !selectedCardType || !selectedDate}
-          className="btn-primary w-full"
-        >
-          Continue to Time Selection
-        </button>
       </div>
     </div>
   )
 
   const renderStep2 = () => (
-    <div className="card">
-      <h2 className="text-2xl font-bold mb-6">Step 2: Select Time Slot</h2>
-
-      {loading ? (
-        <p className="text-center py-8">Loading available slots...</p>
-      ) : availableSlots.length === 0 ? (
-        <div className="text-center py-8">
-          <p className="text-gray-600 mb-4">No available slots for selected date</p>
-          <button onClick={() => setStep(1)} className="btn-secondary">
-            Choose Different Date
-          </button>
-        </div>
-      ) : (
-        <>
-          <div className="mb-4 text-sm text-gray-600">
-            {availableSlots.length > 0 && availableSlots[0].duration && (
-              <p>Appointment duration: <span className="font-semibold">{availableSlots[0].duration} minutes</span></p>
-            )}
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
-            {availableSlots.map((slot, index) => (
-              <button
-                key={index}
-                onClick={() => setSelectedSlot(slot)}
-                className={`p-3 border-2 rounded-lg transition-colors ${
-                  selectedSlot?.time === slot.time && selectedSlot?.doctor_id === slot.doctor_id
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-200 hover:border-blue-300'
-                }`}
-              >
-                <div className="font-semibold">{slot.time}</div>
-                <div className="text-xs text-gray-600">{slot.doctorName}</div>
-                {slot.duration && (
-                  <div className="text-xs text-blue-600 mt-1">{slot.duration} min</div>
-                )}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex gap-3">
-            <button onClick={() => setStep(1)} className="btn-secondary flex-1">
-              Back
-            </button>
-            <button
-              onClick={handleSlotConfirm}
-              disabled={!selectedSlot}
-              className="btn-primary flex-1"
-            >
-              Continue to Registration
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  )
-
-  const renderStep3 = () => (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
       <div className="card">
-        <h2 className="text-2xl font-bold mb-6">Step 3: Your Information</h2>
+        <h2 className="text-2xl font-bold mb-6">Step 2: Your Information</h2>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
@@ -529,7 +575,7 @@ export default function PatientBookingPage() {
       )}
 
       <div className="flex gap-3">
-        <button type="button" onClick={() => setStep(2)} className="btn-secondary flex-1">
+        <button type="button" onClick={() => setStep(1)} className="btn-secondary flex-1">
           Back
         </button>
         <button type="submit" disabled={loading} className="btn-primary flex-1">
@@ -561,20 +607,11 @@ export default function PatientBookingPage() {
             >
               2
             </div>
-            <div className="w-16 h-1 bg-gray-300"></div>
-            <div
-              className={`flex items-center justify-center w-10 h-10 rounded-full ${
-                step >= 3 ? 'bg-blue-600 text-white' : 'bg-gray-300'
-              }`}
-            >
-              3
-            </div>
           </div>
         </div>
 
         {step === 1 && renderStep1()}
         {step === 2 && renderStep2()}
-        {step === 3 && renderStep3()}
       </div>
     </div>
   )

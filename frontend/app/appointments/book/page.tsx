@@ -27,6 +27,7 @@ type BookingFormData = z.infer<typeof bookingSchema>
 export default function AdminBookAppointmentPage() {
   const router = useRouter()
   const { user } = useSelector((state: RootState) => state.auth)
+
   const [step, setStep] = useState(1)
   const [states, setStates] = useState<any[]>([])
   const [selectedState, setSelectedState] = useState('')
@@ -34,24 +35,29 @@ export default function AdminBookAppointmentPage() {
   const [selectedCardType, setSelectedCardType] = useState('')
   const [selectedDate, setSelectedDate] = useState('')
   const [availableSlots, setAvailableSlots] = useState<any[]>([])
-  const [selectedSlot, setSelectedSlot] = useState<any>(null)
+  const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
+  const [slotDuration, setSlotDuration] = useState<number | null>(null)
   const [showMinorFields, setShowMinorFields] = useState(false)
   const [loading, setLoading] = useState(false)
 
-  const { register, handleSubmit, formState: { errors }, watch } = useForm<BookingFormData>({
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    watch,
+  } = useForm<BookingFormData>({
     resolver: zodResolver(bookingSchema),
   })
 
   const dateOfBirth = watch('dateOfBirth')
 
   useEffect(() => {
-    // Check if user is admin or staff
     if (user && user.role_id !== 1 && user.role_id !== 4) {
       router.push('/dashboard')
       return
     }
     fetchStates()
-  }, [user])
+  }, [user, router])
 
   useEffect(() => {
     if (selectedState) {
@@ -82,7 +88,7 @@ export default function AdminBookAppointmentPage() {
   const fetchAppointmentTypes = async () => {
     try {
       const response = await api.get('/api/patient-portal/appointment-types', {
-        params: selectedState ? { state: selectedState } : {}
+        params: selectedState ? { state: selectedState } : {},
       })
       setAppointmentTypes(response.data.appointmentTypes || [])
     } catch (error) {
@@ -103,10 +109,10 @@ export default function AdminBookAppointmentPage() {
           state: selectedState,
           date: selectedDate,
           cardType: selectedCardType,
-        }
+        },
       })
       setAvailableSlots(response.data.slots || [])
-      setStep(2)
+      setSlotDuration(response.data.slotDuration ?? null)
     } catch (error) {
       console.error('Failed to fetch available slots:', error)
       alert('Failed to load available slots')
@@ -120,14 +126,29 @@ export default function AdminBookAppointmentPage() {
       alert('Please select a time slot')
       return
     }
-    setStep(3)
+    setStep(2)
+  }
+
+  const formatTimeRange = (startTime: string, duration: number | null) => {
+    if (!duration) return startTime
+    const [startHour, startMin] = startTime.split(':').map(Number)
+    const startMinutes = startHour * 60 + startMin
+    const endMinutes = startMinutes + duration
+    const endHour = Math.floor(endMinutes / 60) % 24
+    const endMin = endMinutes % 60
+
+    const format12h = (hour: number, min: number) => {
+      const period = hour >= 12 ? 'PM' : 'AM'
+      const hour12 = hour % 12 === 0 ? 12 : hour % 12
+      return `${String(hour12).padStart(2, '0')}:${String(min).padStart(2, '0')} ${period}`
+    }
+
+    return `${format12h(startHour, startMin)} - ${format12h(endHour, endMin)}`
   }
 
   const onSubmit = async (data: BookingFormData) => {
-    const appointmentType = appointmentTypes.find((c) => c._id === selectedCardType)
-    if (!appointmentType || !selectedSlot) return
+    if (!selectedSlot || !selectedCardType) return
 
-    // Check for minor without guardian info
     if (showMinorFields) {
       if (!data.guardianName || !data.guardianPhone || !data.guardianAddress) {
         alert('Guardian information is required for patients under 18')
@@ -147,26 +168,24 @@ export default function AdminBookAppointmentPage() {
         state: selectedState,
         cardType: selectedCardType,
         scheduledDate: selectedDate,
-        scheduledTime: selectedSlot.time,
-        doctor_id: selectedSlot.doctor_id,
+        scheduledTime: selectedSlot,
         isMinor: showMinorFields,
         guardianName: showMinorFields ? data.guardianName : undefined,
         guardianPhone: showMinorFields ? data.guardianPhone : undefined,
-        guardianAddress: showMinorFields ? data.guardianAddress : undefined
+        guardianAddress: showMinorFields ? data.guardianAddress : undefined,
       }
 
       const response = await api.post('/api/appointments/admin-book-patient', bookingData)
-      
+
       if (response.data.success) {
         alert(`Patient registered and appointment created successfully!\nAppointment ID: ${response.data.appointment._id}`)
-        // Redirect to intake form
         router.push(`/appointments/${response.data.appointment._id}/intake`)
       }
     } catch (error: any) {
       if (error.response?.data?.slotConflict) {
         alert(error.response.data.message)
-        setStep(2) // Go back to slot selection
-        handleSlotSelection() // Refresh slots
+        setStep(1)
+        handleSlotSelection()
       } else {
         alert(error.response?.data?.message || 'Booking failed')
       }
@@ -177,133 +196,129 @@ export default function AdminBookAppointmentPage() {
 
   const renderStep1 = () => (
     <div className="card">
-      <h2 className="text-2xl font-bold mb-6">Step 1: Select Appointment Details</h2>
+      <div className="sticky top-0 bg-white z-10 pb-4 border-b">
+        <h2 className="text-2xl font-bold mb-4">Step 1: Select Appointment Details</h2>
 
-      <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium mb-2">Select State</label>
-          <select
-            value={selectedState}
-            onChange={(e) => setSelectedState(e.target.value)}
-            className="input w-full"
-          >
-            <option value="">Choose a state...</option>
-            {states.map((state: any) => (
-              <option key={state.code} value={state.code}>
-                {state.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium mb-2">Select Appointment Type</label>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {appointmentTypes.map((type) => (
-              <div
-                key={type._id}
-                onClick={() => setSelectedCardType(type._id)}
-                className={`p-4 border-2 rounded-lg cursor-pointer transition-colors ${
-                  selectedCardType === type._id
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-200 hover:border-blue-300'
-                }`}
-              >
-                <h3 className="font-semibold">{type.name}</h3>
-                <p className="text-gray-600 text-sm mt-1">{type.description}</p>
-                <div className="mt-2 flex justify-between items-center">
-                  <p className="text-2xl font-bold text-blue-600">${type.price}</p>
-                  <p className="text-sm text-gray-500">{type.duration} min</p>
-                </div>
-                {type.cardValidityMonths && (
-                  <p className="text-xs text-gray-500 mt-1">Valid for {type.cardValidityMonths} months</p>
-                )}
-              </div>
-            ))}
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">Select State</label>
+            <select
+              value={selectedState}
+              onChange={(e) => {
+                setSelectedState(e.target.value)
+                setSelectedSlot(null)
+              }}
+              className="input w-full"
+            >
+              <option value="">Choose a state...</option>
+              {states.map((state: any) => (
+                <option key={state.code} value={state.code}>
+                  {state.name}
+                </option>
+              ))}
+            </select>
           </div>
-        </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-2">Select Date</label>
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            min={new Date().toISOString().split('T')[0]}
-            className="input w-full"
-          />
-        </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">Select Appointment Type</label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {appointmentTypes.map((type) => (
+                <div
+                  key={type._id}
+                  onClick={() => {
+                    setSelectedCardType(type._id)
+                    setSelectedSlot(null)
+                  }}
+                  className={`p-4 border-2 rounded-lg cursor-pointer transition-colors ${
+                    selectedCardType === type._id
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-200 hover:border-blue-300'
+                  }`}
+                >
+                  <h3 className="font-semibold">{type.name}</h3>
+                  <p className="text-gray-600 text-sm mt-1">{type.description}</p>
+                  <div className="mt-2 flex justify-between items-center">
+                    <p className="text-2xl font-bold text-blue-600">${type.price}</p>
+                    <p className="text-sm text-gray-500">{type.duration} min</p>
+                  </div>
+                  {type.cardValidityMonths && (
+                    <p className="text-xs text-gray-500 mt-1">Valid for {type.cardValidityMonths} months</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
 
+          <div>
+            <label className="block text-sm font-medium mb-2">Select Date</label>
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => {
+                setSelectedDate(e.target.value)
+                setSelectedSlot(null)
+              }}
+              min={new Date().toISOString().split('T')[0]}
+              className="input w-full"
+            />
+          </div>
+
+          <button
+            onClick={handleSlotSelection}
+            disabled={!selectedState || !selectedCardType || !selectedDate || loading}
+            className="btn-primary w-full"
+          >
+            {loading ? 'Loading slots...' : 'Find Available Slots'}
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-6">
+        <h3 className="text-lg font-semibold mb-3">Available Time Slots</h3>
+
+        {loading ? (
+          <p className="text-center py-8">Loading available slots...</p>
+        ) : availableSlots.length === 0 ? (
+          <div className="text-center py-8">
+            <p className="text-gray-600">No available slots for selected date</p>
+          </div>
+        ) : (
+          <div className="max-h-[420px] overflow-y-auto pr-2">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              {availableSlots.map((slot, index) => (
+                <button
+                  key={index}
+                  onClick={() => setSelectedSlot(slot.time)}
+                  className={`p-3 border-2 rounded-lg transition-colors text-left ${
+                    selectedSlot === slot.time
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-200 hover:border-blue-300'
+                  }`}
+                >
+                  <div className="font-semibold text-sm">{formatTimeRange(slot.time, slotDuration)}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="flex gap-3 mt-6">
         <button
-          onClick={handleSlotSelection}
-          disabled={!selectedState || !selectedCardType || !selectedDate || loading}
-          className="btn-primary w-full"
+          onClick={handleSlotConfirm}
+          disabled={!selectedSlot}
+          className="btn-primary flex-1"
         >
-          {loading ? 'Loading slots...' : 'Continue to Time Selection'}
+          Continue to Patient Information
         </button>
       </div>
     </div>
   )
 
   const renderStep2 = () => (
-    <div className="card">
-      <h2 className="text-2xl font-bold mb-6">Step 2: Select Time Slot</h2>
-
-      {availableSlots.length === 0 ? (
-        <div className="text-center py-8">
-          <p className="text-gray-600 mb-4">No available slots for selected date</p>
-          <button onClick={() => setStep(1)} className="btn-secondary">
-            Choose Different Date
-          </button>
-        </div>
-      ) : (
-        <>
-          <div className="mb-4 text-sm text-gray-600">
-            {availableSlots.length > 0 && availableSlots[0].duration && (
-              <p>Appointment duration: <span className="font-semibold">{availableSlots[0].duration} minutes</span></p>
-            )}
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
-            {availableSlots.map((slot, index) => (
-              <button
-                key={index}
-                onClick={() => setSelectedSlot(slot)}
-                className={`p-3 border-2 rounded-lg transition-colors ${
-                  selectedSlot?.time === slot.time && selectedSlot?.doctor_id === slot.doctor_id
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-200 hover:border-blue-300'
-                }`}
-              >
-                <div className="font-semibold">{slot.time}</div>
-                <div className="text-xs text-gray-600">{slot.doctorName}</div>
-                {slot.duration && (
-                  <div className="text-xs text-blue-600 mt-1">{slot.duration} min</div>
-                )}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex gap-3">
-            <button onClick={() => setStep(1)} className="btn-secondary flex-1">
-              Back
-            </button>
-            <button
-              onClick={handleSlotConfirm}
-              disabled={!selectedSlot}
-              className="btn-primary flex-1"
-            >
-              Continue to Patient Information
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  )
-
-  const renderStep3 = () => (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
       <div className="card">
-        <h2 className="text-2xl font-bold mb-6">Step 3: Patient Information</h2>
+        <h2 className="text-2xl font-bold mb-6">Step 2: Patient Information</h2>
         <p className="text-sm text-gray-600 mb-4">
           Register a new patient account (or patient can use existing email/password if they have one)
         </p>
@@ -414,8 +429,8 @@ export default function AdminBookAppointmentPage() {
             <span className="font-semibold">{selectedSlot?.time}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-gray-600">Doctor:</span>
-            <span className="font-semibold">{selectedSlot?.doctorName}</span>
+            <span className="text-gray-600">Time:</span>
+            <span className="font-semibold">{selectedSlot ? formatTimeRange(selectedSlot, slotDuration) : 'N/A'}</span>
           </div>
           <div className="flex justify-between border-t pt-2 mt-2">
             <span className="text-gray-600">Amount:</span>
@@ -436,7 +451,7 @@ export default function AdminBookAppointmentPage() {
         <div className="flex gap-3 mt-6">
           <button
             type="button"
-            onClick={() => setStep(2)}
+            onClick={() => setStep(1)}
             className="btn-secondary flex-1"
           >
             Back
@@ -468,19 +483,12 @@ export default function AdminBookAppointmentPage() {
               <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${step >= 1 ? 'border-blue-600 bg-blue-50' : 'border-gray-300'}`}>
                 1
               </div>
-              <span className="ml-2 text-sm font-medium hidden md:inline">Details</span>
+              <span className="ml-2 text-sm font-medium hidden md:inline">Details & Time</span>
             </div>
             <div className={`h-0.5 w-16 ${step >= 2 ? 'bg-blue-600' : 'bg-gray-300'}`}></div>
             <div className={`flex items-center ${step >= 2 ? 'text-blue-600' : 'text-gray-400'}`}>
               <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${step >= 2 ? 'border-blue-600 bg-blue-50' : 'border-gray-300'}`}>
                 2
-              </div>
-              <span className="ml-2 text-sm font-medium hidden md:inline">Time Slot</span>
-            </div>
-            <div className={`h-0.5 w-16 ${step >= 3 ? 'bg-blue-600' : 'bg-gray-300'}`}></div>
-            <div className={`flex items-center ${step >= 3 ? 'text-blue-600' : 'text-gray-400'}`}>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${step >= 3 ? 'border-blue-600 bg-blue-50' : 'border-gray-300'}`}>
-                3
               </div>
               <span className="ml-2 text-sm font-medium hidden md:inline">Patient Info</span>
             </div>
@@ -489,7 +497,6 @@ export default function AdminBookAppointmentPage() {
 
         {step === 1 && renderStep1()}
         {step === 2 && renderStep2()}
-        {step === 3 && renderStep3()}
       </div>
     </DashboardLayout>
   )

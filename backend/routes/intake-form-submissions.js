@@ -6,6 +6,7 @@ const { auth } = require('../middleware/auth');
 const IntakeFormSubmission = require('../models/IntakeFormSubmission');
 const IntakeFormTemplate = require('../models/IntakeFormTemplate');
 const Appointment = require('../models/Appointment');
+const User = require('../models/User');
 const { createLogger, asyncHandler } = require('../utils/logger');
 const { NotFoundError } = require('../utils/errorResponse');
 const { generateIntakeFormPDF } = require('../utils/pdfGenerator');
@@ -52,13 +53,20 @@ const upload = multer({
 router.post('/', [auth, upload.any()], asyncHandler(async (req, res) => {
   const { appointment_id, template_id, formData, saveAsDraft } = req.body;
 
-  // Verify appointment belongs to user
+  // Verify appointment exists
   const appointment = await Appointment.findById(appointment_id);
   if (!appointment) {
     return res.status(404).json({ message: 'Appointment not found' });
   }
 
-  if (appointment.patient_id.toString() !== req.user._id.toString()) {
+  const isPatient = req.user.role_id === 3;
+  const isAdminOrStaff = req.user.role_id === 1 || req.user.role_id === 4;
+
+  if (!isPatient && !isAdminOrStaff) {
+    return res.status(403).json({ message: 'Not authorized to submit this form' });
+  }
+
+  if (isPatient && appointment.patient_id.toString() !== req.user._id.toString()) {
     return res.status(403).json({ message: 'Not authorized to submit this form' });
   }
 
@@ -92,6 +100,13 @@ router.post('/', [auth, upload.any()], asyncHandler(async (req, res) => {
 
   // Check if submission already exists
   let submission = await IntakeFormSubmission.findOne({ appointment_id });
+  const patientUser = isPatient
+    ? req.user
+    : await User.findById(appointment.patient_id).select('-password');
+
+  if (!patientUser) {
+    return res.status(404).json({ message: 'Patient not found' });
+  }
 
   if (submission) {
     // Update existing submission
@@ -104,7 +119,7 @@ router.post('/', [auth, upload.any()], asyncHandler(async (req, res) => {
     // Create new submission
     submission = new IntakeFormSubmission({
       appointment_id,
-      patient_id: req.user._id,
+      patient_id: patientUser._id,
       template_id,
       templateVersion: template.version,
       formData: parsedFormData,
@@ -120,7 +135,7 @@ router.post('/', [auth, upload.any()], asyncHandler(async (req, res) => {
   // Generate PDF if submitted (not draft)
   if (saveAsDraft !== 'true') {
     try {
-      const pdfPath = await generateIntakeFormPDF(submission, template, appointment, req.user);
+      const pdfPath = await generateIntakeFormPDF(submission, template, appointment, patientUser);
       submission.pdfUrl = pdfPath;
       submission.pdfGeneratedAt = new Date();
       await submission.save();

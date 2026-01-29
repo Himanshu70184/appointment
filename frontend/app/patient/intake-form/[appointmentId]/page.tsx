@@ -13,7 +13,7 @@ import {
   clearError,
   clearSuccess
 } from '@/store/slices/intakeFormSubmissionSlice'
-import { getAppointment } from '@/store/slices/patientPortalSlice'
+import { getAppointmentDetails } from '@/store/slices/patientPortalSlice'
 
 export default function PatientIntakeFormPage() {
   const router = useRouter()
@@ -36,7 +36,7 @@ export default function PatientIntakeFormPage() {
 
   useEffect(() => {
     if (appointmentId) {
-      dispatch(getAppointment(appointmentId))
+      dispatch(getAppointmentDetails(appointmentId))
     }
   }, [appointmentId, dispatch])
 

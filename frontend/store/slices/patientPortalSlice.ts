@@ -50,6 +50,7 @@ interface PatientPortalState {
   appointments: Appointment[];
   currentAppointment: Appointment | null;
   availableSlots: any[];
+  slotDuration: number | null;
   states: any[];
   loading: boolean;
   error: string | null;
@@ -61,6 +62,7 @@ const initialState: PatientPortalState = {
   appointments: [],
   currentAppointment: null,
   availableSlots: [],
+  slotDuration: null,
   states: [],
   loading: false,
   error: null,
@@ -228,6 +230,7 @@ const patientPortalSlice = createSlice({
       .addCase(getAvailableSlots.fulfilled, (state, action) => {
         state.loading = false;
         state.availableSlots = action.payload.slots;
+        state.slotDuration = action.payload.slotDuration ?? null;
       })
       .addCase(getAvailableSlots.rejected, (state, action) => {
         state.loading = false;

@@ -25,10 +25,11 @@ ChartJS.register(
 )
 
 interface RevenueChartProps {
-  data?: { month: string; revenue: number }[]
+  data?: number[]
+  total?: number
 }
 
-export default function RevenueChart({ data }: RevenueChartProps) {
+export default function RevenueChart({ data, total }: RevenueChartProps) {
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
   
   const chartData = {
@@ -36,7 +37,7 @@ export default function RevenueChart({ data }: RevenueChartProps) {
     datasets: [
       {
         label: 'Revenue ($)',
-        data: data?.map(d => d.revenue) || months.map(() => Math.floor(Math.random() * 10000) + 5000),
+        data: data && data.length === 12 ? data : months.map(() => 0),
         borderColor: '#22c55e',
         backgroundColor: 'rgba(34, 197, 94, 0.1)',
         fill: true,
@@ -99,7 +100,12 @@ export default function RevenueChart({ data }: RevenueChartProps) {
   return (
     <div className="card">
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-xl font-semibold text-gray-800">Revenue Overview</h3>
+        <div className="flex items-center gap-3">
+          <h3 className="text-xl font-semibold text-gray-800">Revenue Overview</h3>
+          <span className="text-sm font-semibold text-green-700 bg-green-50 border border-green-200 px-2 py-1 rounded">
+            ${Number(total || 0).toLocaleString()}
+          </span>
+        </div>
         <select className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none">
           <option>Monthly</option>
           <option>Weekly</option>

@@ -1,7 +1,9 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
+const mongoose = require('mongoose');
 const { auth, authorize } = require('../middleware/auth');
 const IntakeFormTemplate = require('../models/IntakeFormTemplate');
+const State = require('../models/State');
 const { createLogger, asyncHandler } = require('../utils/logger');
 const { NotFoundError } = require('../utils/errorResponse');
 
@@ -46,21 +48,48 @@ router.get('/active', asyncHandler(async (req, res) => {
   
   // Match appointment type and state if provided
   if (appointmentType) {
-    query.$or = [
-      { appointmentTypes: appointmentType },
-      { appointmentTypes: { $size: 0 } } // Templates with no specific appointment types (universal)
-    ];
+    if (mongoose.Types.ObjectId.isValid(appointmentType)) {
+      query.$or = [
+        { appointmentTypes: appointmentType },
+        { appointmentTypes: { $size: 0 } } // Templates with no specific appointment types (universal)
+      ];
+    } else {
+      query.$or = [
+        { appointmentTypes: { $size: 0 } }
+      ];
+    }
   }
   
   if (state) {
-    query.$and = [
-      {
+    let resolvedStateId = null;
+    if (mongoose.Types.ObjectId.isValid(state)) {
+      resolvedStateId = state;
+    } else {
+      const stateDoc = await State.findOne({
         $or: [
-          { states: state },
-          { states: { $size: 0 } } // Templates with no specific states (universal)
+          { code: state.toUpperCase() },
+          { abbreviation: state.toUpperCase() }
         ]
+      }).select('_id');
+      if (stateDoc) {
+        resolvedStateId = stateDoc._id.toString();
       }
-    ];
+    }
+
+    if (resolvedStateId) {
+      query.$and = [
+        {
+          $or: [
+            { states: resolvedStateId },
+            { states: { $size: 0 } } // Templates with no specific states (universal)
+          ]
+        }
+      ];
+    } else {
+      query.$and = [
+        { states: { $size: 0 } }
+      ];
+    }
   }
 
   // Find default template first, otherwise get the first active one
