@@ -95,6 +95,33 @@ const findCheapestAvailableDoctor = async ({ state, date, time, slotDuration }) 
       }
     }
 
+    // Check if date is a holiday
+    if (availability.holidays && availability.holidays.length > 0) {
+      const dateStr = requestedDate.toISOString().split('T')[0];
+      const holiday = availability.holidays.find(h => {
+        const holidayDate = new Date(h.date).toISOString().split('T')[0];
+        return holidayDate === dateStr;
+      });
+
+      if (holiday) {
+        if (holiday.type === 'full-day') {
+          return; // Skip this doctor - full day holiday
+        } else if (holiday.type === 'half-day') {
+          // Check if slot falls within half-day holiday period
+          if (holiday.startTime && holiday.endTime) {
+            const [holidayStartHour, holidayStartMin] = holiday.startTime.split(':').map(Number);
+            const [holidayEndHour, holidayEndMin] = holiday.endTime.split(':').map(Number);
+            const holidayStartMinutes = holidayStartHour * 60 + holidayStartMin;
+            const holidayEndMinutes = holidayEndHour * 60 + holidayEndMin;
+            
+            if (slotStartMinutes < holidayEndMinutes && slotEndMinutes > holidayStartMinutes) {
+              return; // Skip this doctor - slot overlaps with half-day holiday
+            }
+          }
+        }
+      }
+    }
+
     const isBooked = bookedAppointments.some(apt => 
       apt.doctor_id && 
       apt.doctor_id.toString() === availability.doctor_id._id.toString() && 

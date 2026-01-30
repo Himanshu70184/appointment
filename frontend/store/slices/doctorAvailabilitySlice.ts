@@ -1,6 +1,14 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit'
 import api from '@/lib/api'
 
+export interface Holiday {
+  date: string // ISO date string
+  type: 'full-day' | 'half-day'
+  startTime?: string // "HH:MM" format - required for half-day
+  endTime?: string // "HH:MM" format - required for half-day
+  reason?: string
+}
+
 export interface DaySchedule {
   dayOfWeek: number // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
   isActive: boolean
@@ -18,6 +26,7 @@ export interface DoctorAvailability {
   startDate: string
   endDate: string
   isActive: boolean
+  holidays?: Holiday[]
   notes?: string
   createdBy?: any
   updatedBy?: any
@@ -88,6 +97,7 @@ export const createDoctorAvailability = createAsyncThunk(
     weeklySchedule: DaySchedule[]
     startDate: string
     endDate: string
+    holidays?: Holiday[]
     notes?: string
   }, { rejectWithValue }) => {
     try {
@@ -117,6 +127,7 @@ export const updateDoctorAvailability = createAsyncThunk(
     weeklySchedule?: DaySchedule[]
     startDate?: string
     endDate?: string
+    holidays?: Holiday[]
     notes?: string
     isActive?: boolean
   }, { rejectWithValue }) => {

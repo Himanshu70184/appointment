@@ -8,6 +8,7 @@ import {
   getPatientAppointments,
   clearError,
 } from '@/store/slices/patientPortalSlice'
+import { logout } from '@/store/slices/authSlice'
 import type { AppDispatch, RootState } from '@/store/store'
 
 export default function PatientDashboardPage() {
@@ -22,6 +23,11 @@ export default function PatientDashboardPage() {
     dispatch(getDashboardStats())
     dispatch(getPatientAppointments())
   }, [dispatch])
+
+  const handleLogout = () => {
+    dispatch(logout())
+    router.push('/login')
+  }
 
   const getStatusBadgeColor = (status: string) => {
     const colors: Record<string, string> = {
@@ -51,9 +57,17 @@ export default function PatientDashboardPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold">Patient Dashboard</h1>
-          <p className="text-gray-600 mt-2">Welcome back, {user?.name || 'Patient'}!</p>
+        <div className="mb-8 flex justify-between items-start">
+          <div>
+            <h1 className="text-3xl font-bold">Patient Dashboard</h1>
+            <p className="text-gray-600 mt-2">Welcome back, {user?.name || 'Patient'}!</p>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="btn-secondary flex items-center gap-2"
+          >
+            🚪 Logout
+          </button>
         </div>
 
         {error && (

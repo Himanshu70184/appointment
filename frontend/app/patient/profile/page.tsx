@@ -7,6 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useDispatch, useSelector } from 'react-redux'
 import { updateProfile, changePassword, clearError, clearSuccess } from '@/store/slices/patientPortalSlice'
+import { logout } from '@/store/slices/authSlice'
 import type { AppDispatch, RootState } from '@/store/store'
 
 const profileSchema = z.object({
@@ -100,14 +101,27 @@ export default function PatientProfilePage() {
     }
   }
 
+  const handleLogout = () => {
+    dispatch(logout())
+    router.push('/login')
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-4xl mx-auto px-4">
-        <div className="mb-6">
-          <button onClick={() => router.push('/patient/dashboard')} className="text-blue-600 hover:text-blue-800 mb-4">
-            ← Back to Dashboard
+        <div className="mb-6 flex justify-between items-start">
+          <div>
+            <button onClick={() => router.push('/patient/dashboard')} className="text-blue-600 hover:text-blue-800 mb-4">
+              ← Back to Dashboard
+            </button>
+            <h1 className="text-3xl font-bold">My Profile</h1>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="btn-secondary flex items-center gap-2"
+          >
+            🚪 Logout
           </button>
-          <h1 className="text-3xl font-bold">My Profile</h1>
         </div>
 
         {success && (

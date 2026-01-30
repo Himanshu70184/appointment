@@ -97,6 +97,33 @@ const getCheapestAvailableDoctor = async ({ state, date, time, slotDuration }) =
       }
     }
 
+    // Check if date is a holiday
+    if (availability.holidays && availability.holidays.length > 0) {
+      const dateStr = requestedDate.toISOString().split('T')[0];
+      const holiday = availability.holidays.find(h => {
+        const holidayDate = new Date(h.date).toISOString().split('T')[0];
+        return holidayDate === dateStr;
+      });
+
+      if (holiday) {
+        if (holiday.type === 'full-day') {
+          return; // Skip this doctor - full day holiday
+        } else if (holiday.type === 'half-day') {
+          // Check if slot falls within half-day holiday period
+          if (holiday.startTime && holiday.endTime) {
+            const [holidayStartHour, holidayStartMin] = holiday.startTime.split(':').map(Number);
+            const [holidayEndHour, holidayEndMin] = holiday.endTime.split(':').map(Number);
+            const holidayStartMinutes = holidayStartHour * 60 + holidayStartMin;
+            const holidayEndMinutes = holidayEndHour * 60 + holidayEndMin;
+            
+            if (slotStartMinutes < holidayEndMinutes && slotEndMinutes > holidayStartMinutes) {
+              return; // Skip this doctor - slot overlaps with half-day holiday
+            }
+          }
+        }
+      }
+    }
+
     const isBooked = bookedAppointments.some(apt => 
       apt.doctor_id && 
       apt.doctor_id.toString() === availability.doctor_id._id.toString() && 
@@ -219,6 +246,34 @@ router.get('/available-slots', async (req, res) => {
         breakEndMinutes = breakEndHour * 60 + breakEndMin;
       }
 
+      // Check if date is a holiday for this doctor
+      let isHolidayDay = false;
+      let halfDayHolidayStartMinutes = null;
+      let halfDayHolidayEndMinutes = null;
+      
+      if (availability.holidays && availability.holidays.length > 0) {
+        const dateStr = requestedDate.toISOString().split('T')[0];
+        const holiday = availability.holidays.find(h => {
+          const holidayDate = new Date(h.date).toISOString().split('T')[0];
+          return holidayDate === dateStr;
+        });
+
+        if (holiday) {
+          if (holiday.type === 'full-day') {
+            // Skip this doctor entirely - full day holiday
+            return;
+          } else if (holiday.type === 'half-day') {
+            // Mark half-day period to skip those slots
+            if (holiday.startTime && holiday.endTime) {
+              const [holidayStartHour, holidayStartMin] = holiday.startTime.split(':').map(Number);
+              const [holidayEndHour, holidayEndMin] = holiday.endTime.split(':').map(Number);
+              halfDayHolidayStartMinutes = holidayStartHour * 60 + holidayStartMin;
+              halfDayHolidayEndMinutes = holidayEndHour * 60 + holidayEndMin;
+            }
+          }
+        }
+      }
+
       // Generate time slots based on appointment type duration
       for (let minutes = startMinutes; minutes + slotDuration <= endMinutes; minutes += slotDuration) {
         // Skip slots during break time
@@ -227,6 +282,14 @@ router.get('/available-slots', async (req, res) => {
           const slotEnd = minutes + slotDuration;
           if (minutes < breakEndMinutes && slotEnd > breakStartMinutes) {
             continue; // Skip this slot as it overlaps with break
+          }
+        }
+
+        // Skip slots during half-day holiday
+        if (halfDayHolidayStartMinutes !== null && halfDayHolidayEndMinutes !== null) {
+          const slotEnd = minutes + slotDuration;
+          if (minutes < halfDayHolidayEndMinutes && slotEnd > halfDayHolidayStartMinutes) {
+            continue; // Skip this slot as it overlaps with half-day holiday
           }
         }
 

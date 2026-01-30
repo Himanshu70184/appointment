@@ -1,5 +1,38 @@
 const mongoose = require('mongoose');
 
+// Holiday schema for tracking doctor holidays
+const holidaySchema = new mongoose.Schema({
+  date: {
+    type: Date,
+    required: true,
+  },
+  type: {
+    type: String,
+    enum: ['full-day', 'half-day'],
+    required: true,
+    default: 'full-day',
+  },
+  startTime: {
+    type: String,
+    // Format: "HH:MM" - Required for half-day holidays
+    required: function() {
+      return this.type === 'half-day';
+    },
+  },
+  endTime: {
+    type: String,
+    // Format: "HH:MM" - Required for half-day holidays
+    required: function() {
+      return this.type === 'half-day';
+    },
+  },
+  reason: {
+    type: String,
+    trim: true,
+    default: '',
+  },
+}, { _id: false });
+
 const dayScheduleSchema = new mongoose.Schema({
   dayOfWeek: {
     type: Number,
@@ -84,6 +117,10 @@ const doctorAvailabilitySchema = new mongoose.Schema({
     default: true,
     index: true,
   },
+  holidays: {
+    type: [holidaySchema],
+    default: [],
+  },
   notes: {
     type: String,
     trim: true,
@@ -111,6 +148,24 @@ doctorAvailabilitySchema.methods.isAvailableAt = function(date, time) {
   // Check if date is within range
   if (date < this.startDate || date > this.endDate) {
     return false;
+  }
+
+  // Check if date is a holiday
+  const dateStr = date.toISOString().split('T')[0];
+  const holiday = this.holidays.find(h => {
+    const holidayDate = new Date(h.date).toISOString().split('T')[0];
+    return holidayDate === dateStr;
+  });
+
+  if (holiday) {
+    if (holiday.type === 'full-day') {
+      return false; // Doctor not available on full-day holiday
+    } else if (holiday.type === 'half-day') {
+      // Check if time falls within half-day holiday period
+      if (time >= holiday.startTime && time < holiday.endTime) {
+        return false;
+      }
+    }
   }
 
   // Get day of week

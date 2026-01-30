@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useDispatch, useSelector } from 'react-redux'
-import { login, verify2FA } from '@/store/slices/authSlice'
+import { login, verify2FA, logout } from '@/store/slices/authSlice'
 import Link from 'next/link'
 import type { AppDispatch, RootState } from '@/store/store'
 
@@ -27,11 +27,12 @@ export default function LoginPage() {
     resolver: zodResolver(loginSchema),
   })
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      router.push('/dashboard')
-    }
-  }, [isAuthenticated, router])
+  // Don't auto-redirect, let user choose to logout or go to dashboard
+  // useEffect(() => {
+  //   if (isAuthenticated) {
+  //     router.push('/dashboard')
+  //   }
+  // }, [isAuthenticated, router])
 
   const onSubmit = async (data: LoginFormData) => {
     try {
@@ -57,6 +58,42 @@ export default function LoginPage() {
     } catch (err: any) {
       setOtpError(err.message || '2FA verification failed')
     }
+  }
+
+  const handleLogout = () => {
+    dispatch(logout())
+  }
+
+  // If already authenticated, show different UI
+  if (isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-md w-full space-y-8">
+          <div className="text-center">
+            <h2 className="text-3xl font-extrabold text-gray-900 mb-4">
+              Already Logged In
+            </h2>
+            <p className="text-gray-600 mb-8">
+              You are currently logged in. Choose an option below:
+            </p>
+            <div className="space-y-4">
+              <button
+                onClick={() => router.push('/dashboard')}
+                className="btn-primary w-full"
+              >
+                Go to Dashboard
+              </button>
+              <button
+                onClick={handleLogout}
+                className="btn-secondary w-full"
+              >
+                Logout
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (

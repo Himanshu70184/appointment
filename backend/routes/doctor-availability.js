@@ -66,6 +66,59 @@ const validateWeeklySchedule = (schedule) => {
   return null;
 };
 
+// Validation middleware for holidays
+const validateHolidays = (holidays, startDate, endDate) => {
+  if (!holidays || holidays.length === 0) {
+    return null; // No holidays is valid
+  }
+
+  if (!Array.isArray(holidays)) {
+    return 'Holidays must be an array';
+  }
+
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const timeRegex = /^([0-1][0-9]|2[0-3]):[0-5][0-9]$/;
+
+  for (let i = 0; i < holidays.length; i++) {
+    const holiday = holidays[i];
+
+    // Validate date exists
+    if (!holiday.date) {
+      return `Holiday ${i + 1} is missing a date`;
+    }
+
+    const holidayDate = new Date(holiday.date);
+    
+    // Check if holiday is within schedule range
+    if (holidayDate < start || holidayDate > end) {
+      return `Holiday on ${holiday.date} is outside the schedule date range`;
+    }
+
+    // Validate type
+    if (!holiday.type || !['full-day', 'half-day'].includes(holiday.type)) {
+      return `Holiday ${i + 1} must have type 'full-day' or 'half-day'`;
+    }
+
+    // Validate half-day times
+    if (holiday.type === 'half-day') {
+      if (!holiday.startTime || !holiday.endTime) {
+        return `Half-day holiday on ${holiday.date} must have start and end times`;
+      }
+
+      if (!timeRegex.test(holiday.startTime) || !timeRegex.test(holiday.endTime)) {
+        return `Invalid time format for holiday on ${holiday.date}. Use HH:MM (24-hour format)`;
+      }
+
+      if (holiday.startTime >= holiday.endTime) {
+        return `Start time must be before end time for holiday on ${holiday.date}`;
+      }
+    }
+  }
+
+  return null;
+};
+
 // @route   GET /api/doctors/:doctorId/availability
 // @desc    Get all availability schedules for a doctor
 // @access  Private (Admin/Staff)
@@ -163,9 +216,9 @@ router.post('/:doctorId/availability', [
   }
 
   const { doctorId } = req.params;
-  const { states, weeklySchedule, startDate, endDate, notes } = req.body;
+  const { states, weeklySchedule, startDate, endDate, holidays, notes } = req.body;
   
-  logger.debug('Creating availability', { doctorId, states, dateRange: `${startDate} to ${endDate}` });
+  logger.debug('Creating availability', { doctorId, states, dateRange: `${startDate} to ${endDate}`, holidayCount: holidays?.length || 0 });
 
   // Verify doctor exists and is a doctor
   const doctor = await User.findById(doctorId);
@@ -184,6 +237,18 @@ router.post('/:doctorId/availability', [
       success: false,
       message: scheduleError 
     });
+  }
+
+  // Validate holidays
+  if (holidays) {
+    const holidayError = validateHolidays(holidays, startDate, endDate);
+    if (holidayError) {
+      logger.error('Holiday validation failed', { error: holidayError, holidays });
+      return res.status(400).json({ 
+        success: false,
+        message: holidayError 
+      });
+    }
   }
 
   // Validate states exist
@@ -242,6 +307,7 @@ router.post('/:doctorId/availability', [
     weeklySchedule,
     startDate: start,
     endDate: end,
+    holidays: holidays || [],
     notes,
     createdBy: req.user._id,
     updatedBy: req.user._id,
@@ -293,7 +359,7 @@ router.put('/:doctorId/availability/:id', [
     throw new NotFoundError('Availability schedule');
   }
 
-  const { states, weeklySchedule, startDate, endDate, notes, isActive } = req.body;
+  const { states, weeklySchedule, startDate, endDate, holidays, notes, isActive } = req.body;
 
   // Validate weekly schedule if provided
   if (weeklySchedule) {
@@ -305,6 +371,21 @@ router.put('/:doctorId/availability/:id', [
       });
     }
     availability.weeklySchedule = weeklySchedule;
+  }
+
+  // Validate holidays if provided
+  if (holidays !== undefined) {
+    const effectiveStartDate = startDate || availability.startDate;
+    const effectiveEndDate = endDate || availability.endDate;
+    
+    const holidayError = validateHolidays(holidays, effectiveStartDate, effectiveEndDate);
+    if (holidayError) {
+      return res.status(400).json({ 
+        success: false,
+        message: holidayError 
+      });
+    }
+    availability.holidays = holidays;
   }
 
   // Validate and update states
