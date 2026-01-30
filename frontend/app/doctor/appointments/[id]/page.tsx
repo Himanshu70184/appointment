@@ -287,7 +287,12 @@ export default function AppointmentDetailsPage({ params }: { params: { id: strin
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">Adjusted Amount</label>
-                <p className="text-gray-900">${appointment.adjustedAmount || appointment.medicalCardType.price}</p>
+                <p className="text-gray-900">
+                  ${appointment.adjustedAmount || 
+                    (typeof appointment.appointmentType === 'object' && appointment.appointmentType?.price) || 
+                    appointment.medicalCardType?.price || 
+                    'N/A'}
+                </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">Date</label>

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { useDispatch, useSelector } from 'react-redux'
 import { getAppointment, clearCurrentAppointment } from '@/store/slices/appointmentSlice'
 import DashboardLayout from '@/components/DashboardLayout'
@@ -9,6 +9,7 @@ import type { AppDispatch, RootState } from '@/store/store'
 
 export default function AppointmentDetailPage() {
   const params = useParams()
+  const router = useRouter()
   const dispatch = useDispatch<AppDispatch>()
   const appointmentId = params.id as string
   const { currentAppointment, loading } = useSelector((state: RootState) => state.appointments)
@@ -27,6 +28,15 @@ export default function AppointmentDetailPage() {
     }
   }, [appointmentId, dispatch])
 
+  useEffect(() => {
+    // Load existing notes if available (check both adminNotes and clinicalNotes for backwards compatibility)
+    if (currentAppointment?.adminNotes) {
+      setNotes(currentAppointment.adminNotes)
+    } else if (currentAppointment?.clinicalNotes) {
+      setNotes(currentAppointment.clinicalNotes)
+    }
+  }, [currentAppointment])
+
   const handleSendDocumentRequest = () => {
     // TODO: Implement document request functionality
     console.log('Requesting document:', documentRequest)
@@ -34,10 +44,56 @@ export default function AppointmentDetailPage() {
     setDocumentRequest('')
   }
 
-  const handleSaveNotes = () => {
-    // TODO: Implement save notes functionality
-    console.log('Saving notes:', notes)
-    alert('Notes saved successfully')
+  const handleSaveNotes = async () => {
+    if (!notes.trim()) {
+      alert('Please enter some notes before saving')
+      return
+    }
+    try {
+      const token = document.cookie.split('; ').find(row => row.startsWith('token='))?.split('=')[1]
+      const apiUrl = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
+        ? `http://${window.location.hostname}:5000`
+        : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
+      
+      const response = await fetch(`${apiUrl}/api/appointments/${appointmentId}/notes`, {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ adminNotes: notes })
+      })
+      if (response.ok) {
+        alert('Notes saved successfully')
+        // Refresh appointment data
+        dispatch(getAppointment(appointmentId))
+      } else {
+        const errorData = await response.json()
+        throw new Error(errorData.message || 'Failed to save notes')
+      }
+    } catch (error) {
+      console.error('Error saving notes:', error)
+      alert('Failed to save notes. Please try again.')
+    }
+  }
+
+  const handleViewIntakeForm = () => {
+    if (!currentAppointment) return
+    // Navigate to intake form page
+    router.push(`/appointments/${appointmentId}/intake`)
+  }
+
+  const handleSendEmail = () => {
+    if (!currentAppointment) return
+    const patientEmail = typeof currentAppointment.patient_id === 'object' 
+      ? currentAppointment.patient_id?.email 
+      : null
+    if (patientEmail) {
+      // TODO: Implement email sending functionality
+      alert(`Email will be sent to ${patientEmail}`)
+    } else {
+      alert('Patient email not available')
+    }
   }
 
   return (
@@ -61,8 +117,16 @@ export default function AppointmentDetailPage() {
             </div>
 
             <div className="flex gap-4 mb-4">
-              <button className="btn-primary">Send Email</button>
-              <button className="px-4 py-2 border border-blue-600 text-blue-600 rounded hover:bg-blue-50">
+              <button 
+                onClick={handleSendEmail}
+                className="btn-primary"
+              >
+                Send Email
+              </button>
+              <button 
+                onClick={handleViewIntakeForm}
+                className="px-4 py-2 border border-blue-600 text-blue-600 rounded hover:bg-blue-50"
+              >
                 View Intake Form
               </button>
               <button className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
@@ -104,7 +168,7 @@ export default function AppointmentDetailPage() {
                       <p className="font-medium">
                         {typeof currentAppointment.patient_id === 'object' && currentAppointment.patient_id?.dateOfBirth
                           ? new Date(currentAppointment.patient_id.dateOfBirth).toLocaleDateString()
-                          : '01-01-2000'}
+                          : 'N/A'}
                       </p>
                     </div>
                     <div>
@@ -236,17 +300,22 @@ export default function AppointmentDetailPage() {
                     </div>
 
                     <div>
-                      <label className="text-sm text-gray-600">Appointment Date & Time</label>
+                      <label className="text-sm text-gray-600">Appointment Date</label>
                       <p className="font-medium">
                         {currentAppointment.scheduledDate 
-                          ? new Date(currentAppointment.scheduledDate).toLocaleString('en-US', {
+                          ? new Date(currentAppointment.scheduledDate).toLocaleDateString('en-US', {
                               month: '2-digit',
                               day: '2-digit',
-                              year: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit'
+                              year: 'numeric'
                             })
                           : 'N/A'}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="text-sm text-gray-600">Appointment Time</label>
+                      <p className="font-medium">
+                        {currentAppointment.scheduledTime || 'N/A'}
                       </p>
                     </div>
 
