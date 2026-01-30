@@ -15,6 +15,9 @@ app.use(helmet());
 // CORS configuration - Allow both localhost and network access
 const corsOptions = {
   origin: function (origin, callback) {
+    // Log origin for debugging
+    console.log('CORS request from origin:', origin);
+    
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
@@ -27,16 +30,21 @@ const corsOptions = {
     
     // Also allow any origin from the local network (e.g., http://192.168.x.x:3000)
     if (origin.match(/^http:\/\/(localhost|127\.0\.0\.1|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):3000$/)) {
+      console.log('✅ CORS allowed for:', origin);
       return callback(null, true);
     }
     
     if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
+      console.log('✅ CORS allowed for:', origin);
       callback(null, true);
     } else {
+      console.log('✅ CORS allowed (development mode) for:', origin);
       callback(null, true); // For development, allow all origins
     }
   },
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 };
 app.use(cors(corsOptions));
 

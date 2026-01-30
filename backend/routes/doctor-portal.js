@@ -449,11 +449,10 @@ router.put('/change-password', [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const bcrypt = require('bcryptjs');
     const user = await User.findById(req.user._id);
 
-    const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(req.body.newPassword, salt);
+    // Let User model pre-save hook handle password hashing
+    user.password = req.body.newPassword;
     await user.save();
 
     res.json({ message: 'Password changed successfully' });

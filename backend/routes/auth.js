@@ -197,21 +197,21 @@ router.post('/login', [
     const user = await User.findOne({ email }).select('+password');
 
     if (!user) {
-      return res.status(401).json({ message: 'Invalid credentials' });
+      return res.status(401).json({ message: 'Invalid email or password. Please check your credentials and try again.' });
     }
 
     if (!user.emailVerified) {
-      return res.status(401).json({ message: 'Please verify your email first' });
+      return res.status(403).json({ message: 'Email not verified. Please check your email inbox for the verification link.' });
     }
 
     if (!user.password) {
-      return res.status(401).json({ message: 'Please set up your password first' });
+      return res.status(403).json({ message: 'Account setup incomplete. Please check your email for password setup instructions.' });
     }
 
     const isMatch = await user.comparePassword(password);
 
     if (!isMatch) {
-      return res.status(401).json({ message: 'Invalid credentials' });
+      return res.status(401).json({ message: 'Invalid email or password. Please check your credentials and try again.' });
     }
 
     // Check if 2FA is enabled for this user (admins/staff)

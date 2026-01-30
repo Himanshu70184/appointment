@@ -297,18 +297,15 @@ router.post('/staff', [
       return res.status(400).json({ message: 'Staff already exists with this email' });
     }
 
-    // Hash password
-    const salt = await bcryptjs.genSalt(10);
-    const hashedPassword = await bcryptjs.hash(password, salt);
-
     // Create new user account for staff
+    // Don't hash password here - User model pre-save hook will handle it
     const user = new User({
       name,
       email,
       phone,
-      password: hashedPassword,
+      password, // Pass plain password - will be hashed by User model
       role_id: 4, // Staff role
-      status: status || 'active',
+      status: 'active',
       emailVerified: true // Staff accounts are pre-verified by admin
     });
 
@@ -389,9 +386,9 @@ router.put('/staff/:id', async (req, res) => {
     }
     
     // Update password if provided
+    // User model pre-save hook will hash the password
     if (password) {
-      const salt = await bcryptjs.genSalt(10);
-      user.password = await bcryptjs.hash(password, salt);
+      user.password = password;
     }
 
     // Update staff-specific fields

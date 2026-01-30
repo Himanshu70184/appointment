@@ -1,14 +1,12 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import axios from 'axios';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+import api from '@/lib/api';
 
 // Async thunks
 export const getStates = createAsyncThunk(
   'states/getStates',
   async (params = {}, { rejectWithValue }) => {
     try {
-      const response = await axios.get(`${API_URL}/api/states`, { params });
+      const response = await api.get('/api/states', { params });
       return response.data.states;
     } catch (error) {
       return rejectWithValue(error.response?.data?.message || 'Failed to fetch states');
@@ -20,7 +18,7 @@ export const getState = createAsyncThunk(
   'states/getState',
   async (id, { rejectWithValue }) => {
     try {
-      const response = await axios.get(`${API_URL}/api/states/${id}`);
+      const response = await api.get(`/api/states/${id}`);
       return response.data.state;
     } catch (error) {
       return rejectWithValue(error.response?.data?.message || 'Failed to fetch state');
@@ -30,14 +28,9 @@ export const getState = createAsyncThunk(
 
 export const createState = createAsyncThunk(
   'states/createState',
-  async (stateData, { rejectWithValue, getState }) => {
+  async (stateData, { rejectWithValue }) => {
     try {
-      const { auth } = getState();
-      const response = await axios.post(`${API_URL}/api/states`, stateData, {
-        headers: {
-          'Authorization': `Bearer ${auth.token}`
-        }
-      });
+      const response = await api.post('/api/states', stateData);
       return response.data.state;
     } catch (error) {
       return rejectWithValue(error.response?.data?.message || 'Failed to create state');
@@ -47,14 +40,9 @@ export const createState = createAsyncThunk(
 
 export const updateState = createAsyncThunk(
   'states/updateState',
-  async ({ id, data }, { rejectWithValue, getState }) => {
+  async ({ id, data }, { rejectWithValue }) => {
     try {
-      const { auth } = getState();
-      const response = await axios.put(`${API_URL}/api/states/${id}`, data, {
-        headers: {
-          'Authorization': `Bearer ${auth.token}`
-        }
-      });
+      const response = await api.put(`/api/states/${id}`, data);
       return response.data.state;
     } catch (error) {
       return rejectWithValue(error.response?.data?.message || 'Failed to update state');
@@ -64,14 +52,9 @@ export const updateState = createAsyncThunk(
 
 export const deleteState = createAsyncThunk(
   'states/deleteState',
-  async (id, { rejectWithValue, getState }) => {
+  async (id, { rejectWithValue }) => {
     try {
-      const { auth } = getState();
-      const response = await axios.delete(`${API_URL}/api/states/${id}`, {
-        headers: {
-          'Authorization': `Bearer ${auth.token}`
-        }
-      });
+      await api.delete(`/api/states/${id}`);
       return id;
     } catch (error) {
       return rejectWithValue(error.response?.data?.message || 'Failed to delete state');
@@ -81,14 +64,9 @@ export const deleteState = createAsyncThunk(
 
 export const toggleStateActive = createAsyncThunk(
   'states/toggleStateActive',
-  async (id, { rejectWithValue, getState }) => {
+  async (id, { rejectWithValue }) => {
     try {
-      const { auth } = getState();
-      const response = await axios.put(`${API_URL}/api/states/${id}/toggle-active`, {}, {
-        headers: {
-          'Authorization': `Bearer ${auth.token}`
-        }
-      });
+      const response = await api.put(`/api/states/${id}/toggle-active`);
       return response.data.state;
     } catch (error) {
       return rejectWithValue(error.response?.data?.message || 'Failed to toggle state');

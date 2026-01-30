@@ -1,5 +1,5 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import Cookies from 'js-cookie';
+import api from '@/lib/api';
 
 interface Doctor {
   _id: string;
@@ -31,95 +31,48 @@ const initialState: DoctorState = {
   error: null,
 };
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
-
 export const fetchDoctors = createAsyncThunk('doctors/fetchAll', async (_, { rejectWithValue }) => {
   try {
-    const response = await fetch(`${API_URL}/api/doctors`);
-    if (!response.ok) throw new Error('Failed to fetch doctors');
-    const data = await response.json();
-    return data.doctors;
+    const response = await api.get('/api/doctors');
+    return response.data.doctors;
   } catch (error: any) {
-    return rejectWithValue(error.message);
+    return rejectWithValue(error.response?.data?.message || error.message);
   }
 });
 
 export const createDoctor = createAsyncThunk('doctors/create', async (formData: any, { rejectWithValue }) => {
   try {
-    const token = Cookies.get('token');
-    const response = await fetch(`${API_URL}/api/doctors`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(formData),
-    });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Failed to create doctor');
-    }
-    const data = await response.json();
-    return data.doctor;
+    const response = await api.post('/api/doctors', formData);
+    return response.data.doctor;
   } catch (error: any) {
-    return rejectWithValue(error.message);
+    return rejectWithValue(error.response?.data?.message || error.message);
   }
 });
 
 export const updateDoctor = createAsyncThunk('doctors/update', async ({ id, data }: { id: string; data: any }, { rejectWithValue }) => {
   try {
-    const token = Cookies.get('token');
-    const response = await fetch(`${API_URL}/api/doctors/${id}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(data),
-    });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Failed to update doctor');
-    }
-    const result = await response.json();
-    return result.doctor;
+    const response = await api.put(`/api/doctors/${id}`, data);
+    return response.data.doctor;
   } catch (error: any) {
-    return rejectWithValue(error.message);
+    return rejectWithValue(error.response?.data?.message || error.message);
   }
 });
 
 export const deleteDoctor = createAsyncThunk('doctors/delete', async (id: string, { rejectWithValue }) => {
   try {
-    const token = Cookies.get('token');
-    const response = await fetch(`${API_URL}/api/doctors/${id}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Failed to delete doctor');
-    }
+    await api.delete(`/api/doctors/${id}`);
     return id;
   } catch (error: any) {
-    return rejectWithValue(error.message);
+    return rejectWithValue(error.response?.data?.message || error.message);
   }
 });
 
 export const toggleDoctorActive = createAsyncThunk('doctors/toggleActive', async (id: string, { rejectWithValue }) => {
   try {
-    const token = Cookies.get('token');
-    const response = await fetch(`${API_URL}/api/doctors/${id}/toggle-active`, {
-      method: 'PUT',
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Failed to toggle doctor');
-    }
-    const data = await response.json();
-    return data.doctor;
+    const response = await api.put(`/api/doctors/${id}/toggle-active`);
+    return response.data.doctor;
   } catch (error: any) {
-    return rejectWithValue(error.message);
+    return rejectWithValue(error.response?.data?.message || error.message);
   }
 });
 

@@ -214,7 +214,7 @@ export default function PatientBookingPage() {
 
       if (result.success) {
         if (result.token) {
-          Cookies.set('token', result.token, { expires: 7 })
+          Cookies.set('token', result.token, { expires: 7, sameSite: 'lax', path: '/' })
         }
         localStorage.setItem('pendingIntakeAppointment', result.appointment._id)
         router.push(`/patient/intake-form/${result.appointment._id}`)

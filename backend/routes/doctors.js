@@ -89,7 +89,8 @@ router.post('/', [
       password, // Will be hashed by User model pre-save hook
       role_id: 2, // Doctor role
       state: states && states.length > 0 ? states[0] : 'CA',
-      status: 'active'
+      status: 'active',
+      emailVerified: true // Admin-created doctors are pre-verified
     });
 
     await user.save();

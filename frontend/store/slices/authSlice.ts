@@ -37,35 +37,51 @@ const initialState: AuthState = {
 // Async thunks
 export const register = createAsyncThunk(
   'auth/register',
-  async (userData: { name: string; email: string; phone: string; state: string; appointmentType?: string }) => {
-    const response = await axios.post(`${getAPIUrl()}/api/auth/register`, userData)
-    return response.data
+  async (userData: { name: string; email: string; phone: string; state: string; appointmentType?: string }, { rejectWithValue }) => {
+    try {
+      const response = await axios.post(`${getAPIUrl()}/api/auth/register`, userData)
+      return response.data
+    } catch (error: any) {
+      const message = error.response?.data?.message || error.message || 'Registration failed. Please try again.'
+      return rejectWithValue(message)
+    }
   }
 )
 
 export const login = createAsyncThunk(
   'auth/login',
-  async (credentials: { email: string; password: string }) => {
-    const response = await axios.post(`${getAPIUrl()}/api/auth/login`, credentials)
-    
-    // Check if 2FA is required
-    if (response.data.requiresTwoFactor) {
-      return { requiresTwoFactor: true, userId: response.data.userId }
+  async (credentials: { email: string; password: string }, { rejectWithValue }) => {
+    try {
+      const response = await axios.post(`${getAPIUrl()}/api/auth/login`, credentials)
+      
+      // Check if 2FA is required
+      if (response.data.requiresTwoFactor) {
+        return { requiresTwoFactor: true, userId: response.data.userId }
+      }
+      
+      const { token, user } = response.data
+      Cookies.set('token', token, { expires: 7, sameSite: 'lax', path: '/' })
+      return { token, user, requiresTwoFactor: false }
+    } catch (error: any) {
+      // Extract user-friendly error message
+      const message = error.response?.data?.message || error.message || 'Login failed. Please try again.'
+      return rejectWithValue(message)
     }
-    
-    const { token, user } = response.data
-    Cookies.set('token', token, { expires: 7 })
-    return { token, user, requiresTwoFactor: false }
   }
 )
 
 export const verify2FA = createAsyncThunk(
   'auth/verify2FA',
-  async (data: { userId: string; code: string }) => {
-    const response = await axios.post(`${getAPIUrl()}/api/auth/verify-2fa`, data)
-    const { token, user } = response.data
-    Cookies.set('token', token, { expires: 7 })
-    return { token, user }
+  async (data: { userId: string; code: string }, { rejectWithValue }) => {
+    try {
+      const response = await axios.post(`${getAPIUrl()}/api/auth/verify-2fa`, data)
+      const { token, user } = response.data
+      Cookies.set('token', token, { expires: 7, sameSite: 'lax', path: '/' })
+      return { token, user }
+    } catch (error: any) {
+      const message = error.response?.data?.message || error.message || 'Verification failed. Please try again.'
+      return rejectWithValue(message)
+    }
   }
 )
 
@@ -99,7 +115,7 @@ export const setupPassword = createAsyncThunk(
   async (data: { token: string; password: string }) => {
     const response = await axios.post(`${getAPIUrl()}/api/auth/setup-password`, data)
     const { token, user } = response.data
-    Cookies.set('token', token, { expires: 7 })
+    Cookies.set('token', token, { expires: 7, sameSite: 'lax', path: '/' })
     return { token, user }
   }
 )
@@ -114,7 +130,7 @@ const authSlice = createSlice({
       state.isAuthenticated = false
       state.requiresTwoFactor = false
       state.twoFactorUserId = null
-      Cookies.remove('token')
+      Cookies.remove('token', { path: '/' })
     },
     clearError: (state) => {
       state.error = null
@@ -132,7 +148,7 @@ const authSlice = createSlice({
       })
       .addCase(register.rejected, (state, action) => {
         state.loading = false
-        state.error = action.error.message || 'Registration failed'
+        state.error = (action.payload as string) || action.error.message || 'Registration failed'
       })
       // Login
       .addCase(login.pending, (state) => {
@@ -152,7 +168,7 @@ const authSlice = createSlice({
       })
       .addCase(login.rejected, (state, action) => {
         state.loading = false
-        state.error = action.error.message || 'Login failed'
+        state.error = (action.payload as string) || action.error.message || 'Login failed'
       })
       // Verify 2FA
       .addCase(verify2FA.pending, (state) => {
@@ -169,7 +185,7 @@ const authSlice = createSlice({
       })
       .addCase(verify2FA.rejected, (state, action) => {
         state.loading = false
-        state.error = action.error.message || '2FA verification failed'
+        state.error = (action.payload as string) || action.error.message || '2FA verification failed'
       })
       // Get current user
       .addCase(getCurrentUser.pending, (state) => {

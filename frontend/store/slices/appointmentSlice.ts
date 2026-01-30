@@ -1,23 +1,10 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit'
-import axios from 'axios'
-import Cookies from 'js-cookie'
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
-
-const getAuthHeaders = () => ({
-  headers: {
-    Authorization: `Bearer ${Cookies.get('token')}`,
-  },
-})
+import api from '@/lib/api'
 
 export const createAppointment = createAsyncThunk(
   'appointments/create',
   async (appointmentData: any) => {
-    const response = await axios.post(
-      `${API_URL}/api/appointments`,
-      appointmentData,
-      getAuthHeaders()
-    )
+    const response = await api.post('/api/appointments', appointmentData)
     return response.data
   }
 )
@@ -25,10 +12,7 @@ export const createAppointment = createAsyncThunk(
 export const getAppointments = createAsyncThunk(
   'appointments/getAll',
   async () => {
-    const response = await axios.get(
-      `${API_URL}/api/appointments`,
-      getAuthHeaders()
-    )
+    const response = await api.get('/api/appointments')
     return response.data.appointments
   }
 )
@@ -36,10 +20,7 @@ export const getAppointments = createAsyncThunk(
 export const getAppointment = createAsyncThunk(
   'appointments/getOne',
   async (id: string) => {
-    const response = await axios.get(
-      `${API_URL}/api/appointments/${id}`,
-      getAuthHeaders()
-    )
+    const response = await api.get(`/api/appointments/${id}`)
     return response.data.appointment
   }
 )
@@ -47,17 +28,11 @@ export const getAppointment = createAsyncThunk(
 export const submitIntakeForm = createAsyncThunk(
   'appointments/submitIntake',
   async ({ id, formData }: { id: string; formData: FormData }) => {
-    const response = await axios.post(
-      `${API_URL}/api/appointments/${id}/intake`,
-      formData,
-      {
-        ...getAuthHeaders(),
-        headers: {
-          ...getAuthHeaders().headers,
-          'Content-Type': 'multipart/form-data',
-        },
-      }
-    )
+    const response = await api.post(`/api/appointments/${id}/intake`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    })
     return response.data
   }
 )
