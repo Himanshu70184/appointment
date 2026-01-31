@@ -98,6 +98,7 @@ app.use('/api/doctors', require('./routes/doctor-availability'));
 app.use('/api/doctor-availability', require('./routes/doctor-availability'));
 app.use('/api/intake-form-templates', require('./routes/intake-form-templates'));
 app.use('/api/intake-form-submissions', require('./routes/intake-form-submissions'));
+app.use('/api/test-email', require('./routes/test-email'));
 
 // Health check
 app.get('/api/health', (req, res) => {

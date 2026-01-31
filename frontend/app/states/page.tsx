@@ -37,7 +37,7 @@ export default function StatesPage() {
   const [sortBy, setSortBy] = useState<'name' | 'code' | 'region'>('name');
 
   useEffect(() => {
-    dispatch(getStates());
+    dispatch(getStates({}));
   }, [dispatch]);
 
   useEffect(() => {

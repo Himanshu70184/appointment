@@ -52,7 +52,7 @@ export default function IntakeFormBuilderPage() {
   const [editingSectionIndex, setEditingSectionIndex] = useState<number | null>(null)
 
   useEffect(() => {
-    dispatch(getAppointmentTypes())
+    dispatch(getAppointmentTypes({}))
     dispatch(getStates({ isActive: true }))
     
     if (isEditMode && params.id) {

@@ -42,8 +42,12 @@ export default function PatientIntakeFormPage() {
 
   useEffect(() => {
     if (currentAppointment) {
+      const appointmentTypeId = typeof currentAppointment.appointmentType === 'object' 
+        ? currentAppointment.appointmentType?._id 
+        : currentAppointment.appointmentType
+      
       dispatch(getActiveIntakeFormTemplate({
-        appointmentType: currentAppointment.appointmentType?._id,
+        appointmentType: appointmentTypeId,
         state: currentAppointment.state
       }))
     }

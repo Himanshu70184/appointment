@@ -426,10 +426,6 @@ export default function AdminBookAppointmentPage() {
           </div>
           <div className="flex justify-between">
             <span className="text-gray-600">Time:</span>
-            <span className="font-semibold">{selectedSlot?.time}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-600">Time:</span>
             <span className="font-semibold">{selectedSlot ? formatTimeRange(selectedSlot, slotDuration) : 'N/A'}</span>
           </div>
           <div className="flex justify-between border-t pt-2 mt-2">

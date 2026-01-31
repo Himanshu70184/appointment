@@ -32,7 +32,7 @@ const initialState: LeadState = {
 };
 
 // Get all leads
-export const getLeads = createAsyncThunk('leads/getLeads', async (params?: any) => {
+export const getLeads = createAsyncThunk('leads/getLeads', async (params: any = {}) => {
   const response = await api.get('/api/leads', { params });
   return response.data.leads;
 });

@@ -1,5 +1,13 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit'
 import api from '@/lib/api'
+import type { Appointment } from '@/types'
+
+interface AppointmentState {
+  appointments: Appointment[]
+  currentAppointment: Appointment | null
+  loading: boolean
+  error: string | null
+}
 
 export const createAppointment = createAsyncThunk(
   'appointments/create',
@@ -37,14 +45,16 @@ export const submitIntakeForm = createAsyncThunk(
   }
 )
 
+const initialState: AppointmentState = {
+  appointments: [],
+  currentAppointment: null,
+  loading: false,
+  error: null,
+}
+
 const appointmentSlice = createSlice({
   name: 'appointments',
-  initialState: {
-    appointments: [],
-    currentAppointment: null,
-    loading: false,
-    error: null,
-  },
+  initialState,
   reducers: {
     clearCurrentAppointment: (state) => {
       state.currentAppointment = null
@@ -52,38 +62,38 @@ const appointmentSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      .addCase(createAppointment.pending, (state: any) => {
+      .addCase(createAppointment.pending, (state) => {
         state.loading = true
       })
-      .addCase(createAppointment.fulfilled, (state: any, action) => {
+      .addCase(createAppointment.fulfilled, (state, action) => {
         state.loading = false
         state.appointments.unshift(action.payload.appointment)
       })
-      .addCase(createAppointment.rejected, (state: any, action) => {
+      .addCase(createAppointment.rejected, (state, action) => {
         state.loading = false
-        state.error = action.error.message
+        state.error = action.error.message || 'Failed to create appointment'
       })
-      .addCase(getAppointments.pending, (state: any) => {
+      .addCase(getAppointments.pending, (state) => {
         state.loading = true
       })
-      .addCase(getAppointments.fulfilled, (state: any, action) => {
+      .addCase(getAppointments.fulfilled, (state, action) => {
         state.loading = false
         state.appointments = action.payload
       })
-      .addCase(getAppointments.rejected, (state: any, action) => {
+      .addCase(getAppointments.rejected, (state, action) => {
         state.loading = false
-        state.error = action.error.message
+        state.error = action.error.message || 'Failed to fetch appointments'
       })
-      .addCase(getAppointment.pending, (state: any) => {
+      .addCase(getAppointment.pending, (state) => {
         state.loading = true
       })
-      .addCase(getAppointment.fulfilled, (state: any, action) => {
+      .addCase(getAppointment.fulfilled, (state, action) => {
         state.loading = false
         state.currentAppointment = action.payload
       })
-      .addCase(getAppointment.rejected, (state: any, action) => {
+      .addCase(getAppointment.rejected, (state, action) => {
         state.loading = false
-        state.error = action.error.message
+        state.error = action.error.message || 'Failed to fetch appointment'
       })
   },
 })

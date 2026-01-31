@@ -1,30 +1,26 @@
 const nodemailer = require('nodemailer');
 
-// Configure Mailchimp Transactional (Mandrill) or use SMTP
+// Configure SMTP Transporter
 const createTransporter = () => {
-  if (process.env.MAILCHIMP_API_KEY) {
-    // Using Mailchimp Transactional (Mandrill)
-    return nodemailer.createTransport({
-      host: 'smtp.mandrillapp.com',
-      port: 587,
-      secure: false,
-      auth: {
-        user: 'mandrill',
-        pass: process.env.MAILCHIMP_API_KEY
-      }
-    });
-  } else {
-    // Fallback to SMTP (configure with your email service)
-    return nodemailer.createTransport({
-      host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: process.env.SMTP_PORT || 587,
-      secure: false,
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS
-      }
-    });
+  // Check if SMTP is configured
+  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    console.warn('⚠️  SMTP not configured. Email functionality will not work.');
+    console.warn('Please set SMTP_HOST, SMTP_USER, and SMTP_PASS in .env file');
   }
+
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: parseInt(process.env.SMTP_PORT) || 587,
+    secure: process.env.SMTP_SECURE === 'true', // true for port 465, false for 587
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS
+    },
+    // Additional options for Gmail
+    tls: {
+      rejectUnauthorized: false
+    }
+  });
 };
 
 const sendEmail = async (to, subject, html, text = null) => {
@@ -32,7 +28,7 @@ const sendEmail = async (to, subject, html, text = null) => {
     const transporter = createTransporter();
     
     const mailOptions = {
-      from: `${process.env.MAILCHIMP_FROM_NAME || 'EHR System'} <${process.env.MAILCHIMP_FROM_EMAIL || 'noreply@example.com'}>`,
+      from: `${process.env.SMTP_FROM_NAME || 'EHR System'} <${process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER}>`,
       to,
       subject,
       html,
@@ -40,10 +36,12 @@ const sendEmail = async (to, subject, html, text = null) => {
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log('Email sent:', info.messageId);
+    console.log('✅ Email sent successfully:', info.messageId);
+    console.log('   To:', to);
+    console.log('   Subject:', subject);
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error('Email error:', error);
+    console.error('❌ Email error:', error.message);
     return { success: false, error: error.message };
   }
 };

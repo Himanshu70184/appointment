@@ -90,16 +90,58 @@ export interface Staff {
 
 export interface Appointment {
   _id: string
-  patient_id: string
-  doctor_id: string
+  patient_id: string | User
+  doctor_id: string | User
   appointment_type: string
+  appointmentType?: string | { _id: string; name: string; description?: string; states?: string[] }
   state: string
+  state_id?: string | State
   scheduled_date: string
-  status: 'pending' | 'scheduled' | 'completed' | 'cancelled' | 'need_admin_approval'
-  amount: number
-  payment_status: 'pending' | 'completed' | 'failed' | 'refunded'
+  scheduledDate?: string
+  scheduledTime?: string
+  appointmentDate?: string
+  appointmentTime?: string
+  status: 'pending' | 'scheduled' | 'completed' | 'cancelled' | 'need_admin_approval' | 'approval' | 'rescheduled' | 'on-hold'
+  amount?: number
+  payment_status?: 'pending' | 'completed' | 'failed' | 'refunded'
+  payment_id?: string
+  paymentCompleted?: boolean
+  paymentCompletedAt?: string
   intake_form?: any
+  intakeForm?: any
+  intakeSubmitted?: boolean
+  intakeSubmittedAt?: string
   clinical_notes?: string
+  clinicalNotes?: string
+  notes?: string
+  adminNotes?: string
+  isMinor?: boolean
+  guardianApproved?: boolean
+  guardianApprovedBy?: string
+  guardianApprovedAt?: string
+  pdmpVerified?: boolean
+  pdmpVerifiedAt?: string
+  pdmpVerifiedBy?: string
+  certificationFiled?: boolean
+  certificationFiledAt?: string
+  certificationFiledBy?: string
+  bookedBy?: string
+  documents?: Array<{
+    type: 'id' | 'medical_records' | 'guardian_id' | 'other'
+    filename: string
+    path: string
+    uploadedAt: string
+    status: 'pending' | 'approved' | 'rejected'
+  }>
+  documentRequests?: Array<{
+    requestedBy: string
+    requestedAt: string
+    message: string
+    status: 'pending' | 'sent' | 'fulfilled'
+  }>
+  tasks?: string[]
+  createdAt?: string
+  updatedAt?: string
 }
 
 export interface Coupon {

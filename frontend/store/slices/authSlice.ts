@@ -5,13 +5,26 @@ import type { User } from '@/types'
 
 // Smart API URL detection - same logic as api.ts
 const getAPIUrl = () => {
-  if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
-      return `http://${hostname}:5000`;
-    }
+  // For server-side rendering, use environment variable
+  if (typeof window === 'undefined') {
+    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
   }
-  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+
+  const hostname = window.location.hostname;
+  const protocol = window.location.protocol; // 'http:' or 'https:'
+  
+  // Production deployment (Vercel, Netlify, etc.)
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
+  
+  // Local development
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'http://localhost:5000';
+  }
+  
+  // Network access (use same protocol as frontend and port 5000)
+  return `${protocol}//${hostname}:5000`;
 };
 
 interface AuthState {

@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useDispatch, useSelector } from 'react-redux'
-import { register } from '@/store/slices/authSlice'
+import { register as registerUser } from '@/store/slices/authSlice'
 import Link from 'next/link'
 import type { AppDispatch, RootState } from '@/store/store'
 
@@ -39,7 +39,7 @@ export default function RegisterPage() {
 
   const onSubmit = async (data: RegisterFormData) => {
     try {
-      await dispatch(register(data)).unwrap()
+      await dispatch(registerUser(data)).unwrap()
       setSuccess(true)
     } catch (err) {
       console.error('Registration failed:', err)

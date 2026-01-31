@@ -1,14 +1,32 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import api from '@/lib/api';
+import type { State } from '@/types';
+
+interface StateSliceState {
+  states: State[]
+  currentState: State | null
+  loading: boolean
+  error: string | null
+  success: boolean
+  message: string
+}
+
+interface GetStatesParams {
+  isActive?: boolean
+  search?: string
+  page?: number
+  limit?: number
+  sort?: string
+}
 
 // Async thunks
 export const getStates = createAsyncThunk(
   'states/getStates',
-  async (params = {}, { rejectWithValue }) => {
+  async (params: GetStatesParams = {}, { rejectWithValue }) => {
     try {
       const response = await api.get('/api/states', { params });
       return response.data.states;
-    } catch (error) {
+    } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Failed to fetch states');
     }
   }
@@ -16,11 +34,11 @@ export const getStates = createAsyncThunk(
 
 export const getState = createAsyncThunk(
   'states/getState',
-  async (id, { rejectWithValue }) => {
+  async (id: string, { rejectWithValue }) => {
     try {
       const response = await api.get(`/api/states/${id}`);
       return response.data.state;
-    } catch (error) {
+    } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Failed to fetch state');
     }
   }
@@ -28,11 +46,11 @@ export const getState = createAsyncThunk(
 
 export const createState = createAsyncThunk(
   'states/createState',
-  async (stateData, { rejectWithValue }) => {
+  async (stateData: Partial<State>, { rejectWithValue }) => {
     try {
       const response = await api.post('/api/states', stateData);
       return response.data.state;
-    } catch (error) {
+    } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Failed to create state');
     }
   }
@@ -40,11 +58,11 @@ export const createState = createAsyncThunk(
 
 export const updateState = createAsyncThunk(
   'states/updateState',
-  async ({ id, data }, { rejectWithValue }) => {
+  async ({ id, data }: { id: string; data: Partial<State> }, { rejectWithValue }) => {
     try {
       const response = await api.put(`/api/states/${id}`, data);
       return response.data.state;
-    } catch (error) {
+    } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Failed to update state');
     }
   }
@@ -52,11 +70,11 @@ export const updateState = createAsyncThunk(
 
 export const deleteState = createAsyncThunk(
   'states/deleteState',
-  async (id, { rejectWithValue }) => {
+  async (id: string, { rejectWithValue }) => {
     try {
       await api.delete(`/api/states/${id}`);
       return id;
-    } catch (error) {
+    } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Failed to delete state');
     }
   }
@@ -64,17 +82,17 @@ export const deleteState = createAsyncThunk(
 
 export const toggleStateActive = createAsyncThunk(
   'states/toggleStateActive',
-  async (id, { rejectWithValue }) => {
+  async (id: string, { rejectWithValue }) => {
     try {
       const response = await api.put(`/api/states/${id}/toggle-active`);
       return response.data.state;
-    } catch (error) {
+    } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Failed to toggle state');
     }
   }
 );
 
-const initialState = {
+const initialState: StateSliceState = {
   states: [],
   currentState: null,
   loading: false,
@@ -111,7 +129,7 @@ const stateSlice = createSlice({
       })
       .addCase(getStates.rejected, (state, action) => {
         state.loading = false;
-        state.error = action.payload;
+        state.error = action.payload as string;
       });
 
     // Get Single State
@@ -126,7 +144,7 @@ const stateSlice = createSlice({
       })
       .addCase(getState.rejected, (state, action) => {
         state.loading = false;
-        state.error = action.payload;
+        state.error = action.payload as string;
       });
 
     // Create State
@@ -143,7 +161,7 @@ const stateSlice = createSlice({
       })
       .addCase(createState.rejected, (state, action) => {
         state.loading = false;
-        state.error = action.payload;
+        state.error = action.payload as string;
       });
 
     // Update State
@@ -163,7 +181,7 @@ const stateSlice = createSlice({
       })
       .addCase(updateState.rejected, (state, action) => {
         state.loading = false;
-        state.error = action.payload;
+        state.error = action.payload as string;
       });
 
     // Delete State
@@ -180,7 +198,7 @@ const stateSlice = createSlice({
       })
       .addCase(deleteState.rejected, (state, action) => {
         state.loading = false;
-        state.error = action.payload;
+        state.error = action.payload as string;
       });
 
     // Toggle Active
@@ -200,7 +218,7 @@ const stateSlice = createSlice({
       })
       .addCase(toggleStateActive.rejected, (state, action) => {
         state.loading = false;
-        state.error = action.payload;
+        state.error = action.payload as string;
       });
   }
 });

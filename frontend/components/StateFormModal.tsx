@@ -83,7 +83,7 @@ export default function StateFormModal({ state, onClose }: StateFormModalProps) 
         data: {
           name: formData.name,
           abbreviation: formData.abbreviation.toUpperCase(),
-          region: formData.region,
+          region: formData.region as 'Northeast' | 'Midwest' | 'South' | 'West' | 'Territory',
           notes: formData.notes
         }
       }));
@@ -93,7 +93,7 @@ export default function StateFormModal({ state, onClose }: StateFormModalProps) 
         code: formData.code.toUpperCase(),
         name: formData.name,
         abbreviation: formData.abbreviation.toUpperCase(),
-        region: formData.region,
+        region: formData.region as 'Northeast' | 'Midwest' | 'South' | 'West' | 'Territory',
         notes: formData.notes
       }));
     }
@@ -147,7 +147,7 @@ export default function StateFormModal({ state, onClose }: StateFormModalProps) 
               onChange={handleChange}
               disabled={!!state}
               placeholder="CA"
-              maxLength="2"
+              maxLength={2}
               className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                 errors.code ? 'border-red-500' : 'border-gray-300'
               } ${state ? 'bg-gray-100 cursor-not-allowed' : ''}`}
@@ -185,7 +185,7 @@ export default function StateFormModal({ state, onClose }: StateFormModalProps) 
               value={formData.abbreviation}
               onChange={handleChange}
               placeholder="CA"
-              maxLength="2"
+              maxLength={2}
               className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                 errors.abbreviation ? 'border-red-500' : 'border-gray-300'
               }`}

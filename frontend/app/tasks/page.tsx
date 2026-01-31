@@ -15,7 +15,7 @@ export default function TasksPage() {
 
   useEffect(() => {
     if (user && (user.role_id === 1 || user.role_id === 4)) {
-      dispatch(getTasks())
+      dispatch(getTasks({}))
     } else if (user) {
       router.push('/dashboard')
     }
@@ -26,7 +26,7 @@ export default function TasksPage() {
 
     try {
       await dispatch(deleteTask(taskId)).unwrap()
-      dispatch(getTasks())
+      dispatch(getTasks({}))
     } catch (err) {
       console.error('Delete failed:', err)
     }

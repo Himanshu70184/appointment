@@ -29,7 +29,7 @@ const initialState: AppointmentTypeState = {
 };
 
 // Get all appointment types
-export const getAppointmentTypes = createAsyncThunk('appointmentTypes/getAll', async (params?: any) => {
+export const getAppointmentTypes = createAsyncThunk('appointmentTypes/getAll', async (params: any = {}) => {
   const response = await api.get('/api/appointment-types', { params });
   return response.data.appointmentTypes;
 });

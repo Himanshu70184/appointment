@@ -87,7 +87,7 @@ export default function DoctorAvailabilityModal({
   // Fetch states on mount
   useEffect(() => {
     if (isOpen && states.length === 0) {
-      dispatch(getStates())
+      dispatch(getStates({}))
     }
   }, [isOpen, dispatch, states.length])
 

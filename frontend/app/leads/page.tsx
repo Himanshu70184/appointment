@@ -18,7 +18,7 @@ export default function LeadsPage() {
 
   useEffect(() => {
     if (user && (user.role_id === 1 || user.role_id === 4)) {
-      dispatch(getLeads())
+      dispatch(getLeads({}))
     } else if (user) {
       router.push('/dashboard')
     }
@@ -31,7 +31,7 @@ export default function LeadsPage() {
       await dispatch(updateLead({ id: selectedLead._id, data: { status: newStatus } })).unwrap()
       setShowStatusModal(false)
       setSelectedLead(null)
-      dispatch(getLeads())
+      dispatch(getLeads({}))
     } catch (err) {
       console.error('Update status failed:', err)
     }
@@ -42,7 +42,7 @@ export default function LeadsPage() {
 
     try {
       await dispatch(convertLead(leadId)).unwrap()
-      dispatch(getLeads())
+      dispatch(getLeads({}))
       alert('Lead converted successfully! A patient account has been created.')
     } catch (err: any) {
       alert(err.message || 'Failed to convert lead')
@@ -54,7 +54,7 @@ export default function LeadsPage() {
 
     try {
       await dispatch(deleteLead(leadId)).unwrap()
-      dispatch(getLeads())
+      dispatch(getLeads({}))
     } catch (err) {
       console.error('Delete failed:', err)
     }

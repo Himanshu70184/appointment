@@ -7,8 +7,9 @@ require('dotenv').config();
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
-const MedicalCard = require('../models/MedicalCard');
+const AppointmentType = require('../models/AppointmentType');
 const Doctor = require('../models/Doctor');
+const State = require('../models/State');
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/ehr-system';
 
@@ -20,57 +21,108 @@ async function createTestData() {
 
     // Clear existing test data (optional - comment out if you want to keep data)
     // await User.deleteMany({ email: { $in: ['admin@test.com', 'doctor@test.com', 'patient@test.com'] } });
-    // await MedicalCard.deleteMany({});
+    // await AppointmentType.deleteMany({});
     // await Doctor.deleteMany({});
 
-    // Create Medical Card Types
-    console.log('Creating medical card types...');
-    const medicalCards = await MedicalCard.insertMany([
+    // Create States if they don't exist
+    console.log('Creating/Updating states...');
+    const stateData = [
+      { code: 'CA', name: 'California', abbreviation: 'CA', region: 'West', isActive: true },
+      { code: 'NY', name: 'New York', abbreviation: 'NY', region: 'Northeast', isActive: true },
+      { code: 'FL', name: 'Florida', abbreviation: 'FL', region: 'South', isActive: true },
+      { code: 'TX', name: 'Texas', abbreviation: 'TX', region: 'South', isActive: true },
+      { code: 'CO', name: 'Colorado', abbreviation: 'CO', region: 'West', isActive: true },
+    ];
+    
+    for (const state of stateData) {
+      await State.findOneAndUpdate(
+        { code: state.code },
+        state,
+        { upsert: true, new: true }
+      );
+    }
+    console.log(`✓ Created/Updated ${stateData.length} states`);
+
+    // Create Appointment Types
+    console.log('Creating appointment types...');
+    const appointmentTypes = [];
+    
+    const standardType = await AppointmentType.findOneAndUpdate(
+      { name: 'Standard Medical Card' },
       {
         name: 'Standard Medical Card',
         description: 'Standard 12-month medical marijuana card',
-        price: 150,
-        duration: 12,
-        states: ['CA', 'NY', 'FL', 'TX', 'CO'],
+        duration: 30,
         isActive: true,
+        pricing: {
+          CA: 150,
+          NY: 175,
+          FL: 160,
+          TX: 140,
+          CO: 155
+        }
       },
+      { upsert: true, new: true }
+    );
+    appointmentTypes.push(standardType);
+
+    const premiumType = await AppointmentType.findOneAndUpdate(
+      { name: 'Premium Medical Card' },
       {
         name: 'Premium Medical Card',
         description: 'Premium 24-month medical marijuana card',
-        price: 250,
-        duration: 24,
-        states: ['CA', 'NY', 'FL', 'TX', 'CO'],
+        duration: 45,
         isActive: true,
+        pricing: {
+          CA: 250,
+          NY: 275,
+          FL: 260,
+          TX: 240,
+          CO: 255
+        }
       },
+      { upsert: true, new: true }
+    );
+    appointmentTypes.push(premiumType);
+
+    const basicType = await AppointmentType.findOneAndUpdate(
+      { name: 'Basic Medical Card' },
       {
         name: 'Basic Medical Card',
         description: 'Basic 6-month medical marijuana card',
-        price: 99,
-        duration: 6,
-        states: ['CA', 'NY', 'FL'],
+        duration: 15,
         isActive: true,
+        pricing: {
+          CA: 99,
+          NY: 110,
+          FL: 105
+        }
       },
-    ]);
-    console.log(`✓ Created ${medicalCards.length} medical card types`);
+      { upsert: true, new: true }
+    );
+    appointmentTypes.push(basicType);
+
+    console.log(`✓ Created ${appointmentTypes.length} appointment types`);
 
     // Create Admin User
     console.log('Creating admin user...');
     const adminPassword = await bcrypt.hash('admin123', 10);
     const admin = await User.findOneAndUpdate(
-      { email: 'admin@test.com' },
+      { email: 'himanshukumar.codexmattrix@gmail.com' },
       {
         name: 'Admin User',
-        email: 'admin@test.com',
+        email: 'himanshukumar.codexmattrix@gmail.com',
         phone: '555-0001',
         state: 'CA',
         password: adminPassword,
         role_id: 1, // Admin
         status: 'active',
         emailVerified: true,
+        twoFactorEnabled: true
       },
       { upsert: true, new: true }
     );
-    console.log(`✓ Admin user created: admin@test.com / admin123`);
+    console.log(`✓ Admin user created: himanshukumar.codexmattrix@gmail.com / admin123`);
 
     // Create Doctor User
     console.log('Creating doctor user...');
@@ -174,6 +226,7 @@ async function createTestData() {
         role_id: 4, // Staff
         status: 'active',
         emailVerified: true,
+        twoFactorEnabled: true
       },
       { upsert: true, new: true }
     );
@@ -182,7 +235,7 @@ async function createTestData() {
     console.log('\n✅ Test data created successfully!');
     console.log('\n📋 Test Accounts:');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('Admin:  admin@test.com    / admin123');
+    console.log('Admin:  himanshukumar.codexmattrix@gmail.com / admin123');
     console.log('Doctor: doctor@test.com   / doctor123');
     console.log('Patient: patient@test.com / patient123');
     console.log('Staff:  staff@test.com    / staff123');

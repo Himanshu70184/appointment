@@ -2,17 +2,28 @@ import axios from 'axios'
 import Cookies from 'js-cookie'
 
 // Smart API URL detection
-// If accessing from network (not localhost), use network IP for API calls
+// Handles local development, network access, and production deployment
 const getAPIUrl = () => {
-  if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    // If accessing via network IP, use same IP for API
-    if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
-      return `http://${hostname}:5000`;
-    }
+  // For server-side rendering, use environment variable
+  if (typeof window === 'undefined') {
+    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
   }
-  // Default to localhost for local development
-  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+
+  const hostname = window.location.hostname;
+  const protocol = window.location.protocol; // 'http:' or 'https:'
+  
+  // Production deployment (Vercel, Netlify, etc.)
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
+  
+  // Local development
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'http://localhost:5000';
+  }
+  
+  // Network access (use same protocol as frontend and port 5000)
+  return `${protocol}//${hostname}:5000`;
 };
 
 const api = axios.create({

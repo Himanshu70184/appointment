@@ -43,7 +43,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (user && user.role_id === 1) {
-      dispatch(getAppointmentTypes())
+      dispatch(getAppointmentTypes({}))
     } else if (user) {
       router.push('/dashboard')
     }
@@ -85,7 +85,7 @@ export default function SettingsPage() {
         await dispatch(createAppointmentType(data)).unwrap()
       }
       setShowModal(false)
-      dispatch(getAppointmentTypes())
+      dispatch(getAppointmentTypes({}))
     } catch (err) {
       console.error('Form submit failed:', err)
     }
@@ -96,7 +96,7 @@ export default function SettingsPage() {
 
     try {
       await dispatch(deleteAppointmentType(id)).unwrap()
-      dispatch(getAppointmentTypes())
+      dispatch(getAppointmentTypes({}))
     } catch (err) {
       console.error('Delete failed:', err)
     }

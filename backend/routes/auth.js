@@ -225,20 +225,45 @@ router.post('/login', [
       user.twoFactorExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
       await user.save();
 
+      // For STAFF login, send 2FA code to ADMIN email
+      // For ADMIN login, send to their own email
+      let emailRecipient = user;
+      let recipientEmail = user.email;
+      
+      if (user.role_id === 4) { // Staff
+        // Find admin user to send code to admin email
+        const adminUser = await User.findOne({ role_id: 1 });
+        if (adminUser) {
+          emailRecipient = { 
+            ...adminUser.toObject(), 
+            name: `Admin (for ${user.name})` 
+          };
+          recipientEmail = adminUser.email;
+          console.log(`\n🔐 Staff login detected: ${user.email}`);
+          console.log(`📧 Sending 2FA code to ADMIN email: ${recipientEmail}\n`);
+        }
+      }
+
       // Development: Log OTP to console
       console.log('\n===========================================');
       console.log('🔐 2FA CODE for', user.email, ':', otp);
+      console.log('📧 Code sent to:', recipientEmail);
       console.log('===========================================\n');
 
       // Send OTP via email (don't await to avoid blocking on email errors)
-      send2FAEmail(user, otp).catch(err => {
+      send2FAEmail(emailRecipient, otp).catch(err => {
         console.error('Email send failed (non-blocking):', err.message);
       });
+
+      const message = user.role_id === 4 
+        ? 'OTP sent to admin email. Please contact admin for the code.' 
+        : 'OTP sent to your email';
 
       return res.json({
         requiresTwoFactor: true,
         userId: user._id,
-        message: 'OTP sent to your email'
+        message,
+        sentToAdmin: user.role_id === 4
       });
     }
 
