@@ -182,7 +182,7 @@ router.get('/appointment/:appointmentId', [auth], asyncHandler(async (req, res) 
   // Check authorization
   const userRole = req.user.role_id;
   const isPatient = submission.patient_id._id.toString() === req.user._id.toString();
-  const isAuthorized = isPatient || userRole === 1 || userRole === 4; // patient, admin, or staff
+  const isAuthorized = isPatient || userRole === 1 || userRole === 4 || userRole === 2; // patient, admin, staff, or doctor
 
   if (!isAuthorized) {
     return res.status(403).json({ message: 'Not authorized' });

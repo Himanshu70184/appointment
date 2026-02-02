@@ -59,8 +59,10 @@ router.post('/register', [
 
     await user.save();
 
+    const frontendUrl = req.get('origin') || process.env.FRONTEND_URL;
+
     // Send welcome email
-    await sendWelcomeEmail(user, verificationToken);
+    await sendWelcomeEmail(user, verificationToken, frontendUrl);
 
     res.status(201).json({
       message: 'Registration successful. Please check your email to verify your account.',
@@ -112,8 +114,10 @@ router.get('/verify-email', async (req, res) => {
     user.passwordResetExpires = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
     await user.save();
 
+    const frontendUrl = req.get('origin') || process.env.FRONTEND_URL;
+
     // Send password setup email
-    await sendPasswordSetupEmail(user, resetToken);
+    await sendPasswordSetupEmail(user, resetToken, frontendUrl);
 
     res.json({
       message: 'Email verified successfully. Please check your email to set up your password.',

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useDispatch, useSelector } from 'react-redux'
 import { getAppointment, clearCurrentAppointment } from '@/store/slices/appointmentSlice'
+import { getSubmissionByAppointment, clearError as clearIntakeError } from '@/store/slices/intakeFormSubmissionSlice'
 import DashboardLayout from '@/components/DashboardLayout'
 import type { AppDispatch, RootState } from '@/store/store'
 
@@ -13,9 +14,13 @@ export default function AppointmentDetailPage() {
   const dispatch = useDispatch<AppDispatch>()
   const appointmentId = params.id as string
   const { currentAppointment, loading } = useSelector((state: RootState) => state.appointments)
+  const { currentSubmission, loading: intakeLoading, error: intakeError } = useSelector(
+    (state: RootState) => state.intakeFormSubmissions
+  )
   const [activeTab, setActiveTab] = useState<'items' | 'tasks' | 'notes'>('notes')
   const [notes, setNotes] = useState('')
   const [documentRequest, setDocumentRequest] = useState('')
+  const [showIntakeDetails, setShowIntakeDetails] = useState(false)
 
   useEffect(() => {
     if (appointmentId) {
@@ -25,6 +30,7 @@ export default function AppointmentDetailPage() {
     // Cleanup when component unmounts
     return () => {
       dispatch(clearCurrentAppointment())
+      dispatch(clearIntakeError())
     }
   }, [appointmentId, dispatch])
 
@@ -79,8 +85,60 @@ export default function AppointmentDetailPage() {
 
   const handleViewIntakeForm = () => {
     if (!currentAppointment) return
-    // Navigate to intake form page
-    router.push(`/appointments/${appointmentId}/intake`)
+    if (!currentAppointment.intakeSubmitted) {
+      alert('Intake form has not been submitted yet.')
+      return
+    }
+
+    dispatch(getSubmissionByAppointment(appointmentId))
+      .unwrap()
+      .then(() => setShowIntakeDetails(true))
+      .catch(() => setShowIntakeDetails(true))
+  }
+
+  const getFileUrl = (url: string) => {
+    if (!url) return url
+    if (url.startsWith('http://') || url.startsWith('https://')) return url
+    const apiUrl =
+      process.env.NEXT_PUBLIC_API_URL ||
+      (typeof window !== 'undefined'
+        ? `${window.location.protocol}//${window.location.hostname}:5000`
+        : 'http://localhost:5000')
+    return `${apiUrl}${url.startsWith('/') ? '' : '/'}${url}`
+  }
+
+  const getOptionLabels = (fieldId: string, value: any) => {
+    const template = currentSubmission?.template_id as any
+    const sections = template?.sections || []
+    const field = sections
+      .flatMap((section: any) => section.fields || [])
+      .find((f: any) => f.fieldId === fieldId)
+
+    if (!field || !field.options || field.options.length === 0) {
+      return null
+    }
+
+    const mapValueToLabel = (val: any) => {
+      const option = field.options.find((opt: any) => opt.value === val)
+      return option?.label || val
+    }
+
+    if (Array.isArray(value)) {
+      return value.map(mapValueToLabel).join(', ')
+    }
+
+    return mapValueToLabel(value)
+  }
+
+  const formatIntakeValue = (value: any) => {
+    if (Array.isArray(value)) {
+      return value.length ? value.join(', ') : 'N/A'
+    }
+    if (value === true) return 'Yes'
+    if (value === false) return 'No'
+    if (value === null || value === undefined || value === '') return 'N/A'
+    if (typeof value === 'object') return JSON.stringify(value)
+    return String(value)
   }
 
   const handleSendEmail = () => {
@@ -137,6 +195,67 @@ export default function AppointmentDetailPage() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Left Column - Patient Info & Notes */}
               <div className="lg:col-span-2 space-y-6">
+                {showIntakeDetails && (
+                  <div className="card">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-lg font-semibold">Intake Form Submission</h2>
+                      <button
+                        onClick={() => setShowIntakeDetails(false)}
+                        className="text-sm text-gray-500 hover:text-gray-700"
+                      >
+                        Hide
+                      </button>
+                    </div>
+
+                    {intakeLoading && (
+                      <p className="text-gray-600">Loading intake submission...</p>
+                    )}
+
+                    {intakeError && (
+                      <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700">
+                        {intakeError}
+                      </div>
+                    )}
+
+                    {!intakeLoading && (currentSubmission?.formData?.length || 0) > 0 && (
+                      <div className="space-y-3">
+                        {currentSubmission?.formData?.map((field: any) => (
+                          <div key={field.fieldId} className="flex flex-col md:flex-row md:items-start md:gap-4 border-b pb-3">
+                            <div className="md:w-1/3 text-sm font-medium text-gray-700">
+                              {field.label || field.fieldId || 'Field'}
+                            </div>
+                            <div className="md:w-2/3 text-sm text-gray-900">
+                              {field.fileUrls && field.fileUrls.length > 0 ? (
+                                <ul className="list-disc pl-5">
+                                  {field.fileUrls.map((url: string, idx: number) => (
+                                    <li key={`${field.fieldId}-${idx}`}>
+                                      <a
+                                        href={getFileUrl(url)}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-blue-600 hover:text-blue-800"
+                                      >
+                                        {url.split('/').pop()}
+                                      </a>
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                getOptionLabels(field.fieldId, field.value) ??
+                                formatIntakeValue(field.value)
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {!intakeLoading && !currentSubmission && !intakeError && (
+                      <p className="text-gray-600">No intake submission found.</p>
+                    )}
+                  </div>
+                )}
+
                 {/* Patient Information */}
                 <div className="card">
                   <div className="flex items-center justify-between mb-4">

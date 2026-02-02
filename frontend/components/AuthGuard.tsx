@@ -52,7 +52,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     }
 
     // Only redirect away from public routes if fully authenticated with user data
-    if (isAuthenticated && user && isPublicRoute && pathname !== '/verify-email') {
+    if (isAuthenticated && user && isPublicRoute && pathname !== '/verify-email' && pathname !== '/patient/book') {
       console.log('AuthGuard: Redirecting from public route to dashboard')
       // Determine redirect based on user role
       if (user.role_id === 2) {

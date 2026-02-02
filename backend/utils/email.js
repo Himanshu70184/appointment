@@ -46,8 +46,9 @@ const sendEmail = async (to, subject, html, text = null) => {
   }
 };
 
-const sendWelcomeEmail = async (user, verificationToken) => {
-  const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${verificationToken}`;
+const sendWelcomeEmail = async (user, verificationToken, baseUrl) => {
+  const frontendUrl = baseUrl || process.env.FRONTEND_URL;
+  const verificationUrl = `${frontendUrl}/verify-email?token=${verificationToken}`;
   
   const html = `
     <!DOCTYPE html>
@@ -77,8 +78,9 @@ const sendWelcomeEmail = async (user, verificationToken) => {
   return await sendEmail(user.email, 'Welcome - Verify Your Email', html);
 };
 
-const sendPasswordSetupEmail = async (user, resetToken) => {
-  const resetUrl = `${process.env.FRONTEND_URL}/setup-password?token=${resetToken}`;
+const sendPasswordSetupEmail = async (user, resetToken, baseUrl) => {
+  const frontendUrl = baseUrl || process.env.FRONTEND_URL;
+  const resetUrl = `${frontendUrl}/setup-password?token=${resetToken}`;
   
   const html = `
     <!DOCTYPE html>

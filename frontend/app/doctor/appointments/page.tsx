@@ -197,7 +197,19 @@ export default function DoctorAppointmentsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {appointments.map((appointment: any, index: number) => (
+                      {appointments.map((appointment: any, index: number) => {
+                        const isIntakePending =
+                          !appointment.intakeSubmitted &&
+                          appointment.status !== 'completed' &&
+                          appointment.status !== 'cancelled'
+                        const statusLabel = isIntakePending
+                          ? 'Intake Pending'
+                          : appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)
+                        const statusClass = isIntakePending
+                          ? 'bg-orange-100 text-orange-800'
+                          : getStatusColor(appointment.status)
+
+                        return (
                         <tr key={appointment._id} className="border-b hover:bg-gray-50">
                           <td className="px-6 py-4 text-sm text-gray-900">{index + 1}</td>
                           <td className="px-6 py-4 text-sm font-medium text-gray-900">
@@ -221,11 +233,9 @@ export default function DoctorAppointmentsPage() {
                           </td>
                           <td className="px-6 py-4 text-sm">
                             <span
-                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(
-                                appointment.status
-                              )}`}
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusClass}`}
                             >
-                              {appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)}
+                              {statusLabel}
                             </span>
                           </td>
                           <td className="px-6 py-4 text-sm">
@@ -256,7 +266,8 @@ export default function DoctorAppointmentsPage() {
                             </button>
                           </td>
                         </tr>
-                      ))}
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>

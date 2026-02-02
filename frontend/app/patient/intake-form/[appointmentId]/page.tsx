@@ -35,6 +35,15 @@ export default function PatientIntakeFormPage() {
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   useEffect(() => {
+    dispatch(clearError())
+    dispatch(clearSuccess())
+    return () => {
+      dispatch(clearError())
+      dispatch(clearSuccess())
+    }
+  }, [dispatch])
+
+  useEffect(() => {
     if (appointmentId) {
       dispatch(getAppointmentDetails(appointmentId))
     }
@@ -55,11 +64,13 @@ export default function PatientIntakeFormPage() {
 
   useEffect(() => {
     if (success) {
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        dispatch(clearSuccess())
         router.push('/patient/dashboard')
       }, 2000)
+      return () => clearTimeout(timer)
     }
-  }, [success, router])
+  }, [success, router, dispatch])
 
   const validateField = (field: IntakeFormField, value: any): string | null => {
     if (field.required && (!value || (Array.isArray(value) && value.length === 0))) {

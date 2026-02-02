@@ -376,7 +376,8 @@ router.post('/admin-book-patient', [
         guardianName: isMinor ? guardianName : undefined,
         guardianPhone: isMinor ? guardianPhone : undefined,
         guardianAddress: isMinor ? guardianAddress : undefined,
-        status: 'active' // Active immediately for admin-created accounts
+        status: 'active', // Active immediately for admin-created accounts
+        emailVerified: true // Admin-created patients are pre-verified
       });
 
       await user.save();

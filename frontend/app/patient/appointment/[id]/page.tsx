@@ -176,7 +176,7 @@ export default function AppointmentDetailsPage() {
             </div>
             {!currentAppointment.intakeSubmitted && currentAppointment.paymentCompleted && (
               <button
-                onClick={() => router.push(`/patient/intake/${currentAppointment._id}`)}
+                onClick={() => router.push(`/patient/intake-form/${currentAppointment._id}`)}
                 className="btn-primary w-full mt-4"
               >
                 Complete Intake Form

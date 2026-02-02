@@ -45,7 +45,25 @@ export default function AppointmentsPage() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {appointments.map((appointment: any) => (
+                {appointments.map((appointment: any) => {
+                  const isIntakePending =
+                    !appointment.intakeSubmitted &&
+                    appointment.status !== 'completed' &&
+                    appointment.status !== 'cancelled'
+                  const statusLabel = isIntakePending
+                    ? 'Intake Pending'
+                    : appointment.status
+                  const statusClass = isIntakePending
+                    ? 'bg-orange-100 text-orange-800'
+                    : appointment.status === 'completed'
+                    ? 'bg-green-100 text-green-800'
+                    : appointment.status === 'pending'
+                    ? 'bg-yellow-100 text-yellow-800'
+                    : appointment.status === 'canceled'
+                    ? 'bg-red-100 text-red-800'
+                    : 'bg-blue-100 text-blue-800'
+
+                  return (
                   <tr key={appointment._id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {appointment.scheduledDate
@@ -64,17 +82,9 @@ export default function AppointmentsPage() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
-                        className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          appointment.status === 'completed'
-                            ? 'bg-green-100 text-green-800'
-                            : appointment.status === 'pending'
-                            ? 'bg-yellow-100 text-yellow-800'
-                            : appointment.status === 'canceled'
-                            ? 'bg-red-100 text-red-800'
-                            : 'bg-blue-100 text-blue-800'
-                        }`}
+                        className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusClass}`}
                       >
-                        {appointment.status}
+                        {statusLabel}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
@@ -86,7 +96,8 @@ export default function AppointmentsPage() {
                       </a>
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>

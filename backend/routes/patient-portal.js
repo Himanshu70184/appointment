@@ -10,7 +10,8 @@ const Coupon = require('../models/Coupon');
 const State = require('../models/State');
 const { auth, authorize } = require('../middleware/auth');
 const { processPayment } = require('../utils/payment');
-const { sendTemplateEmail } = require('../utils/email');
+const { sendTemplateEmail, sendWelcomeEmail } = require('../utils/email');
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
@@ -481,7 +482,41 @@ router.post('/book-appointment', [
         status: 'new'
       });
 
+      // Generate email verification token
+      const verificationToken = crypto.randomBytes(32).toString('hex');
+      user.emailVerificationToken = crypto
+        .createHash('sha256')
+        .update(verificationToken)
+        .digest('hex');
+      user.emailVerificationExpires = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+
       await user.save();
+
+      const frontendUrl = req.get('origin') || process.env.FRONTEND_URL;
+
+      // Send verification email (do not block booking flow if email fails)
+      try {
+        await sendWelcomeEmail(user, verificationToken, frontendUrl);
+      } catch (emailError) {
+        console.error('Failed to send verification email:', emailError);
+      }
+    } else if (user && !user.emailVerified) {
+      const frontendUrl = req.get('origin') || process.env.FRONTEND_URL;
+
+      // Re-send verification email for existing unverified users
+      const verificationToken = crypto.randomBytes(32).toString('hex');
+      user.emailVerificationToken = crypto
+        .createHash('sha256')
+        .update(verificationToken)
+        .digest('hex');
+      user.emailVerificationExpires = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+      await user.save();
+
+      try {
+        await sendWelcomeEmail(user, verificationToken, frontendUrl);
+      } catch (emailError) {
+        console.error('Failed to re-send verification email:', emailError);
+      }
     }
 
     // Create appointment
