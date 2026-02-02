@@ -9,7 +9,7 @@ import Cookies from 'js-cookie'
 import LoadingSpinner from './LoadingSpinner'
 
 // Public routes that don't require authentication
-const PUBLIC_ROUTES = ['/login', '/register', '/verify-email', '/setup-password']
+const PUBLIC_ROUTES = ['/login', '/register', '/verify-email', '/setup-password', '/patient/book']
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const dispatch = useDispatch<AppDispatch>()

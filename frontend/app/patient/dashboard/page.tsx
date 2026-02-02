@@ -151,63 +151,77 @@ export default function PatientDashboardPage() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {appointments.map((appointment, index) => (
-                    <tr key={appointment._id} className="hover:bg-gray-50">
-                      <td className="px-4 py-4 whitespace-nowrap text-sm">{index + 1}</td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm">
-                        {typeof appointment.appointmentType === 'string' 
-                          ? appointment.appointmentType 
-                          : appointment.appointmentType?.name || 'N/A'}
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm">
-                        {appointment.scheduledDate ? (
-                          <>
-                            {new Date(appointment.scheduledDate).toLocaleDateString()}
-                            <br />
-                            <span className="text-gray-500">{appointment.scheduledTime}</span>
-                          </>
-                        ) : (
-                          <span className="text-gray-400">Not scheduled</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm">{appointment.state}</td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm font-semibold">
-                        ${appointment.medicalCardType?.price || 0}
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap">
-                        <span
-                          className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusBadgeColor(
-                            appointment.status
-                          )}`}
-                        >
-                          {appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)}
-                        </span>
-                        {appointment.status === 'pending' && !appointment.intakeSubmitted && (
-                          <div className="mt-1">
-                            <span className="text-xs text-orange-600">⚠ Intake Pending</span>
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm">
-                        <button
-                          onClick={() => router.push(`/patient/appointment/${appointment._id}`)}
-                          className="text-blue-600 hover:text-blue-800 mr-3"
-                        >
-                          View Details
-                        </button>
-                        {appointment.status === 'pending' && !appointment.intakeSubmitted && (
-                          <button
-                            onClick={() =>
-                              router.push(`/patient/intake-form/${appointment._id}`)
-                            }
-                            className="text-green-600 hover:text-green-800"
+                  {appointments.map((appointment, index) => {
+                    const appointmentPrice =
+                      appointment.adjustedAmount ??
+                      (typeof appointment.appointmentType === 'object'
+                        ? appointment.appointmentType?.price
+                        : undefined) ??
+                      appointment.medicalCardType?.price ??
+                      appointment.payment_id?.amount ??
+                      0
+                    const isIntakePending =
+                      !appointment.intakeSubmitted &&
+                      appointment.status !== 'completed' &&
+                      appointment.status !== 'cancelled'
+                    const statusLabel = isIntakePending
+                      ? 'Intake Pending'
+                      : appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)
+                    const statusClass = isIntakePending
+                      ? 'bg-orange-100 text-orange-800'
+                      : getStatusBadgeColor(appointment.status)
+
+                    return (
+                      <tr key={appointment._id} className="hover:bg-gray-50">
+                        <td className="px-4 py-4 whitespace-nowrap text-sm">{index + 1}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm">
+                          {typeof appointment.appointmentType === 'string'
+                            ? appointment.appointmentType
+                            : appointment.appointmentType?.name || 'N/A'}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm">
+                          {appointment.scheduledDate ? (
+                            <>
+                              {new Date(appointment.scheduledDate).toLocaleDateString()}
+                              <br />
+                              <span className="text-gray-500">{appointment.scheduledTime}</span>
+                            </>
+                          ) : (
+                            <span className="text-gray-400">Not scheduled</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm">{appointment.state}</td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm font-semibold">
+                          ${appointmentPrice}
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap">
+                          <span
+                            className={`px-2 py-1 text-xs font-semibold rounded-full ${statusClass}`}
                           >
-                            Complete Intake
+                            {statusLabel}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm">
+                          <button
+                            onClick={() => router.push(`/patient/appointment/${appointment._id}`)}
+                            className="text-blue-600 hover:text-blue-800 mr-3"
+                          >
+                            View Details
                           </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                          {appointment.status === 'pending' && !appointment.intakeSubmitted && (
+                            <button
+                              onClick={() =>
+                                router.push(`/patient/intake-form/${appointment._id}`)
+                              }
+                              className="text-green-600 hover:text-green-800"
+                            >
+                              Complete Intake
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

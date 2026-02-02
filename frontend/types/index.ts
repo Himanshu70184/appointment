@@ -103,8 +103,9 @@ export interface Appointment {
   appointmentTime?: string
   status: 'pending' | 'scheduled' | 'completed' | 'cancelled' | 'need_admin_approval' | 'approval' | 'rescheduled' | 'on-hold'
   amount?: number
+  adjustedAmount?: number
   payment_status?: 'pending' | 'completed' | 'failed' | 'refunded'
-  payment_id?: string
+  payment_id?: string | { amount?: number; status?: string; transactionId?: string }
   paymentCompleted?: boolean
   paymentCompletedAt?: string
   intake_form?: any

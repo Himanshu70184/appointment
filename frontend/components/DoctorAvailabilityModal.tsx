@@ -57,15 +57,31 @@ export default function DoctorAvailabilityModal({
   const [holidayReason, setHolidayReason] = useState('')
   const [currentMonth, setCurrentMonth] = useState(new Date())
 
+  const normalizeDateString = (dateStr: string) => {
+    if (!dateStr) return ''
+    if (dateStr.includes('T')) return dateStr.split('T')[0]
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr
+    const parsed = new Date(dateStr)
+    if (Number.isNaN(parsed.getTime())) return ''
+    return parsed.toISOString().split('T')[0]
+  }
+
   // Initialize form data when editing
   useEffect(() => {
     if (availability) {
+      const normalizedHolidays = (availability.holidays || [])
+        .map(holiday => ({
+          ...holiday,
+          date: normalizeDateString(holiday.date),
+        }))
+        .filter(holiday => holiday.date)
+
       setFormData({
         states: availability.states || [],
         weeklySchedule: availability.weeklySchedule || createDefaultWeeklySchedule(),
         startDate: availability.startDate?.split('T')[0] || '',
         endDate: availability.endDate?.split('T')[0] || '',
-        holidays: availability.holidays || [],
+        holidays: normalizedHolidays,
         notes: availability.notes || '',
       })
     } else {
@@ -157,11 +173,11 @@ export default function DoctorAvailabilityModal({
   }
 
   const isHolidayDate = (dateStr: string) => {
-    return formData.holidays.some(h => h.date === dateStr)
+    return formData.holidays.some(h => normalizeDateString(h.date) === dateStr)
   }
 
   const getHolidayForDate = (dateStr: string) => {
-    return formData.holidays.find(h => h.date === dateStr)
+    return formData.holidays.find(h => normalizeDateString(h.date) === dateStr)
   }
 
   const handleDateClick = (dateStr: string) => {
@@ -194,7 +210,7 @@ export default function DoctorAvailabilityModal({
     }
 
     const newHolidays: Holiday[] = selectedDates.map(date => ({
-      date,
+      date: normalizeDateString(date),
       type: holidayType,
       startTime: holidayType === 'half-day' ? holidayStartTime : undefined,
       endTime: holidayType === 'half-day' ? holidayEndTime : undefined,
@@ -203,7 +219,10 @@ export default function DoctorAvailabilityModal({
 
     setFormData(prev => ({
       ...prev,
-      holidays: [...prev.holidays.filter(h => !selectedDates.includes(h.date)), ...newHolidays]
+      holidays: [
+        ...prev.holidays.filter(h => !selectedDates.includes(normalizeDateString(h.date))),
+        ...newHolidays,
+      ]
     }))
 
     // Reset selection
@@ -215,12 +234,14 @@ export default function DoctorAvailabilityModal({
   const handleRemoveHoliday = (dateStr: string) => {
     setFormData(prev => ({
       ...prev,
-      holidays: prev.holidays.filter(h => h.date !== dateStr)
+      holidays: prev.holidays.filter(h => normalizeDateString(h.date) !== dateStr)
     }))
   }
 
   const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr + 'T00:00:00')
+    const normalized = normalizeDateString(dateStr)
+    const date = normalized ? new Date(`${normalized}T00:00:00`) : new Date(dateStr)
+    if (Number.isNaN(date.getTime())) return normalized || dateStr
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   }
 
