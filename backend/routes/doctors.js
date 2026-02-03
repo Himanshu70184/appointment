@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const { auth, authorize } = require('../middleware/auth');
 const Doctor = require('../models/Doctor');
 const User = require('../models/User');
+const Appointment = require('../models/Appointment');
 
 const router = express.Router();
 
@@ -48,6 +49,47 @@ router.get('/:id', async (req, res) => {
     res.json({ doctor });
   } catch (error) {
     console.error('Get doctor error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   GET /api/doctors/:id/dashboard
+// @desc    Get doctor dashboard stats (Admin/Staff)
+// @access  Private (Admin/Staff)
+router.get('/:id/dashboard', [auth, authorize('admin', 'staff')], async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+
+    const doctor = await Doctor.findById(req.params.id)
+      .populate('user_id', 'name email phone state');
+
+    if (!doctor) {
+      return res.status(404).json({ message: 'Doctor not found' });
+    }
+
+    const query = { doctor_id: doctor.user_id._id };
+
+    if (startDate || endDate) {
+      const start = startDate ? new Date(startDate) : new Date('1970-01-01');
+      const end = endDate ? new Date(endDate) : new Date();
+      start.setHours(0, 0, 0, 0);
+      end.setHours(23, 59, 59, 999);
+      query.scheduledDate = { $gte: start, $lte: end };
+    }
+
+    const appointments = await Appointment.find(query).select('status');
+
+    const stats = {
+      totalAppointments: appointments.length,
+      scheduledAppointments: appointments.filter(a => a.status === 'scheduled').length,
+      pendingAppointments: appointments.filter(a => a.status === 'pending').length,
+      completedAppointments: appointments.filter(a => a.status === 'completed').length,
+      cancelledAppointments: appointments.filter(a => a.status === 'cancelled').length
+    };
+
+    res.json({ doctor, stats });
+  } catch (error) {
+    console.error('Doctor dashboard stats error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });

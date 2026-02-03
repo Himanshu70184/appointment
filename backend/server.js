@@ -56,7 +56,11 @@ if (process.env.NODE_ENV === 'development' || process.env.LOG_ALL === 'true') {
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000 // limit each IP to 1000 requests per windowMs
+  max: 5000, // limit each IP to 5000 requests per windowMs
+  skip: (req) => {
+    const path = req.path || '';
+    return path.startsWith('/auth/login') || path.startsWith('/auth/verify-2fa');
+  }
 });
 app.use('/api/', limiter);
 

@@ -7,6 +7,7 @@ import { getAppointment, clearCurrentAppointment } from '@/store/slices/appointm
 import { getSubmissionByAppointment, clearError as clearIntakeError } from '@/store/slices/intakeFormSubmissionSlice'
 import DashboardLayout from '@/components/DashboardLayout'
 import type { AppDispatch, RootState } from '@/store/store'
+import api from '@/lib/api'
 
 export default function AppointmentDetailPage() {
   const params = useParams()
@@ -17,10 +18,13 @@ export default function AppointmentDetailPage() {
   const { currentSubmission, loading: intakeLoading, error: intakeError } = useSelector(
     (state: RootState) => state.intakeFormSubmissions
   )
-  const [activeTab, setActiveTab] = useState<'items' | 'tasks' | 'notes'>('notes')
+  const [activeTab, setActiveTab] = useState<'emailLogs' | 'tasks' | 'notes'>('notes')
   const [notes, setNotes] = useState('')
   const [documentRequest, setDocumentRequest] = useState('')
   const [showIntakeDetails, setShowIntakeDetails] = useState(false)
+  const [emailLogs, setEmailLogs] = useState<Array<{ title: string; message: string; createdAt: string }>>([])
+  const [emailLogsLoading, setEmailLogsLoading] = useState(false)
+  const [emailLogsError, setEmailLogsError] = useState<string | null>(null)
 
   useEffect(() => {
     if (appointmentId) {
@@ -42,6 +46,26 @@ export default function AppointmentDetailPage() {
       setNotes(currentAppointment.clinicalNotes)
     }
   }, [currentAppointment])
+
+  useEffect(() => {
+    const fetchEmailLogs = async () => {
+      if (!appointmentId) return
+      setEmailLogsLoading(true)
+      setEmailLogsError(null)
+      try {
+        const response = await api.get(`/api/appointments/${appointmentId}/email-logs`)
+        setEmailLogs(response.data?.logs || [])
+      } catch (error: any) {
+        setEmailLogsError(error.response?.data?.message || 'Failed to load email logs')
+      } finally {
+        setEmailLogsLoading(false)
+      }
+    }
+
+    if (activeTab === 'emailLogs') {
+      fetchEmailLogs()
+    }
+  }, [activeTab, appointmentId])
 
   const handleSendDocumentRequest = () => {
     // TODO: Implement document request functionality
@@ -141,16 +165,49 @@ export default function AppointmentDetailPage() {
     return String(value)
   }
 
-  const handleSendEmail = () => {
+  const handleSendEmail = async () => {
     if (!currentAppointment) return
-    const patientEmail = typeof currentAppointment.patient_id === 'object' 
-      ? currentAppointment.patient_id?.email 
-      : null
-    if (patientEmail) {
-      // TODO: Implement email sending functionality
-      alert(`Email will be sent to ${patientEmail}`)
-    } else {
-      alert('Patient email not available')
+    try {
+      const isIntakePending =
+        !currentAppointment.intakeSubmitted &&
+        currentAppointment.status !== 'completed' &&
+        currentAppointment.status !== 'cancelled'
+
+      const template = isIntakePending
+        ? 'pending-intake'
+        : currentAppointment.status === 'approval' || currentAppointment.status === 'need_admin_approval'
+        ? 'need-approval'
+        : 'scheduled'
+
+      await api.post(`/api/appointments/${appointmentId}/send-email`, { template })
+
+      alert(`Email sent successfully (${template})`)
+
+      if (activeTab === 'emailLogs') {
+        const response = await api.get(`/api/appointments/${appointmentId}/email-logs`)
+        setEmailLogs(response.data?.logs || [])
+      }
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Failed to send email')
+    }
+  }
+
+  const handleCompleteAppointment = async () => {
+    if (!currentAppointment) return
+    if (currentAppointment.status === 'completed') {
+      alert('Appointment is already completed')
+      return
+    }
+
+    const confirmComplete = confirm('Mark this appointment as completed?')
+    if (!confirmComplete) return
+
+    try {
+      await api.put(`/api/appointments/${appointmentId}/status`, { status: 'completed' })
+      await dispatch(getAppointment(appointmentId))
+      alert('Appointment marked as completed')
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Failed to complete appointment')
     }
   }
 
@@ -335,14 +392,14 @@ export default function AppointmentDetailPage() {
                   <div className="border-b mb-4">
                     <div className="flex gap-4">
                       <button
-                        onClick={() => setActiveTab('items')}
+                        onClick={() => setActiveTab('emailLogs')}
                         className={`pb-2 px-1 ${
-                          activeTab === 'items'
+                          activeTab === 'emailLogs'
                             ? 'border-b-2 border-blue-600 text-blue-600 font-medium'
                             : 'text-gray-500 hover:text-gray-700'
                         }`}
                       >
-                        Items
+                        Email Logs
                       </button>
                       <button
                         onClick={() => setActiveTab('tasks')}
@@ -388,9 +445,29 @@ export default function AppointmentDetailPage() {
                     </div>
                   )}
 
-                  {activeTab === 'items' && (
-                    <div className="text-gray-500 text-center py-8">
-                      No items available
+                  {activeTab === 'emailLogs' && (
+                    <div>
+                      {emailLogsLoading ? (
+                        <div className="text-gray-500 text-center py-8">Loading email logs...</div>
+                      ) : emailLogsError ? (
+                        <div className="text-red-600 text-center py-8">{emailLogsError}</div>
+                      ) : emailLogs.length === 0 ? (
+                        <div className="text-gray-500 text-center py-8">No email logs available</div>
+                      ) : (
+                        <ul className="space-y-4">
+                          {emailLogs.map((log, index) => (
+                            <li key={`${log.createdAt}-${index}`} className="border rounded p-4">
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="font-medium text-gray-900">{log.title}</span>
+                                <span className="text-xs text-gray-500">
+                                  {new Date(log.createdAt).toLocaleString()}
+                                </span>
+                              </div>
+                              <p className="text-sm text-gray-700">{log.message}</p>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
                   )}
 
@@ -471,7 +548,10 @@ export default function AppointmentDetailPage() {
                         Change Status & Time
                       </button>
                     </div>
-                    <button className="w-full px-4 py-2 border border-blue-600 text-blue-600 rounded hover:bg-blue-50">
+                    <button
+                      onClick={handleCompleteAppointment}
+                      className="w-full px-4 py-2 border border-blue-600 text-blue-600 rounded hover:bg-blue-50"
+                    >
                       Complete Appointment
                     </button>
                   </div>

@@ -778,7 +778,7 @@ router.get('/', auth, async (req, res) => {
 
     const appointments = await Appointment.find(query)
       .populate('patient_id', 'name email phone prn')
-      .populate('doctor_id', 'name email')
+      .populate('doctor_id', 'name email phone')
       .populate('appointmentType', 'name price duration cardValidityMonths')
       .sort({ createdAt: -1 });
 
@@ -804,7 +804,7 @@ router.get('/:id', auth, async (req, res) => {
 
     const appointment = await Appointment.findOne(query)
       .populate('patient_id', 'name email phone prn dateOfBirth guardianName guardianEmail guardianPhone')
-      .populate('doctor_id', 'name email')
+      .populate('doctor_id', 'name email phone')
       .populate('appointmentType', 'name description price duration cardValidityMonths')
       .populate('payment_id');
 
@@ -870,7 +870,7 @@ router.put('/:id/status', [
 // @access  Private (Admin, Staff)
 router.post('/:id/send-email', [
   auth,
-  authorize(1, 4),
+  authorize('admin', 'staff'),
   body('template').notEmpty().withMessage('Email template is required')
 ], async (req, res) => {
   try {
@@ -907,6 +907,30 @@ router.post('/:id/send-email', [
     res.json({ message: 'Email sent successfully' });
   } catch (error) {
     console.error('Send email error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   GET /api/appointments/:id/email-logs
+// @desc    Get email logs for an appointment
+// @access  Private (Admin, Staff)
+router.get('/:id/email-logs', [auth, authorize('admin', 'staff')], async (req, res) => {
+  try {
+    const appointment = await Appointment.findById(req.params.id).select('_id');
+    if (!appointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
+
+    const logs = await Notification.find({
+      related_id: req.params.id,
+      type: 'email'
+    })
+      .sort({ createdAt: -1 })
+      .select('title message createdAt');
+
+    res.json({ logs });
+  } catch (error) {
+    console.error('Get email logs error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });

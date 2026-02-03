@@ -2,9 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
-import { useDispatch, useSelector } from 'react-redux'
 import DashboardLayout from '@/components/DashboardLayout'
-import type { AppDispatch, RootState } from '@/store/store'
 import api from '@/lib/api'
 
 export default function DoctorDashboardPage() {
@@ -12,41 +10,50 @@ export default function DoctorDashboardPage() {
   const doctorId = params.id as string
   const [doctor, setDoctor] = useState<any>(null)
   const [stats, setStats] = useState({
-    totalAppointments: 5,
-    scheduledAppointments: 3,
-    pendingAppointments: 1,
+    totalAppointments: 0,
+    scheduledAppointments: 0,
+    pendingAppointments: 0,
     completedAppointments: 0,
     cancelledAppointments: 0
   })
   const [loading, setLoading] = useState(true)
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchDoctorData = async (filters?: { startDate?: string; endDate?: string }) => {
+    try {
+      setLoading(true)
+      setError(null)
+      const params = new URLSearchParams()
+      if (filters?.startDate) params.append('startDate', filters.startDate)
+      if (filters?.endDate) params.append('endDate', filters.endDate)
+
+      const response = await api.get(`/api/doctors/${doctorId}/dashboard?${params.toString()}`)
+      setDoctor(response.data.doctor)
+      setStats(response.data.stats)
+    } catch (error: any) {
+      console.error('Error fetching doctor dashboard:', error)
+      setError(error.response?.data?.message || 'Failed to load doctor dashboard')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    const fetchDoctorData = async () => {
-      try {
-        const response = await api.get(`/api/doctors/${doctorId}`)
-        setDoctor(response.data.doctor)
-        setLoading(false)
-      } catch (error) {
-        console.error('Error fetching doctor:', error)
-        setLoading(false)
-      }
-    }
-
     if (doctorId) {
       fetchDoctorData()
     }
   }, [doctorId])
 
   const handleSearch = () => {
-    // TODO: Implement date range filtering
-    console.log('Search appointments from', startDate, 'to', endDate)
+    fetchDoctorData({ startDate, endDate })
   }
 
   const handleClear = () => {
     setStartDate('')
     setEndDate('')
+    fetchDoctorData()
   }
 
   if (loading) {
@@ -65,6 +72,12 @@ export default function DoctorDashboardPage() {
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Doctor Dashboard</h1>
         </div>
+
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">
+            {error}
+          </div>
+        )}
 
         {/* Doctor Info Card */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">

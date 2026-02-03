@@ -87,24 +87,6 @@ export default function DashboardPage() {
 
   return (
     <DashboardLayout>
-      {/* Quick Actions - Admin/Staff */}
-      {(user?.role_id === 1 || user?.role_id === 4) && (
-        <div className="mb-6 flex gap-4">
-          <button
-            onClick={() => router.push('/appointments/book')}
-            className="btn-primary"
-          >
-            📅 Book Appointment for Patient
-          </button>
-          <button
-            onClick={() => router.push('/appointments')}
-            className="btn-secondary"
-          >
-            📋 View All Appointments
-          </button>
-        </div>
-      )}
-
       {/* Appointment Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard

@@ -73,12 +73,21 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       loading ||
       !isAuthenticated ||
       !user ||
-      user.role_id !== 3
+      user.role_id !== 3 ||
+      pathname?.startsWith('/patient/profile')
     ) {
       return
     }
 
     const checkIntakePending = async () => {
+      const storageKey = 'intakePendingCheckAt'
+      const now = Date.now()
+      const lastCheck = Number(sessionStorage.getItem(storageKey) || 0)
+      if (now - lastCheck < 30000) {
+        return
+      }
+      sessionStorage.setItem(storageKey, String(now))
+
       setIsCheckingIntake(true)
       try {
         const response = await api.get('/api/patient-portal/appointments')
@@ -96,8 +105,9 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
           const isOnIntakePage =
             pathname?.startsWith('/patient/intake-form') ||
             pathname?.startsWith('/patient/intake')
+          const allowWhilePending = pathname?.startsWith('/patient/profile')
 
-          if (!isOnIntakePage) {
+          if (!isOnIntakePage && !allowWhilePending) {
             router.push(intakePath)
           }
         }
@@ -112,7 +122,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [isAuthenticated, isInitializing, loading, pathname, router, user])
 
   // Show loading spinner while initializing or loading
-  if (isInitializing || loading || isCheckingIntake) {
+  if (isInitializing || loading) {
     return <LoadingSpinner fullScreen text="Authenticating..." />
   }
 
