@@ -16,6 +16,17 @@ const { sendAppointmentNotification, sendTemplateEmail } = require('../utils/ema
 
 const router = express.Router();
 
+const addIntakePendingFlag = (appointment) => {
+  const data = appointment.toObject ? appointment.toObject() : appointment;
+  const status = data.status;
+  const intakePending =
+    !data.intakeSubmitted &&
+    status !== 'completed' &&
+    status !== 'cancelled' &&
+    status !== 'canceled';
+  return { ...data, intakePending };
+};
+
 const findCheapestAvailableDoctor = async ({ state, date, time, slotDuration }) => {
   const requestedDate = new Date(date);
   const requestedDay = requestedDate.getDay();
@@ -414,8 +425,8 @@ router.post('/admin-book-patient', [
     await Notification.create({
       user_id: user._id,
       type: 'appointment',
-      title: 'Appointment Pending Approval',
-      message: `Your appointment for ${new Date(scheduledDate).toLocaleDateString()} at ${scheduledTime} is pending admin approval.`,
+      title: 'Appointment Pending Intake',
+      message: `Your appointment for ${new Date(scheduledDate).toLocaleDateString()} at ${scheduledTime} is pending intake form completion.`,
       related_id: appointment._id
     });
 
@@ -771,7 +782,7 @@ router.get('/', auth, async (req, res) => {
       .populate('appointmentType', 'name price duration cardValidityMonths')
       .sort({ createdAt: -1 });
 
-    res.json({ appointments });
+    res.json({ appointments: appointments.map(addIntakePendingFlag) });
   } catch (error) {
     console.error('Get appointments error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -801,7 +812,7 @@ router.get('/:id', auth, async (req, res) => {
       return res.status(404).json({ message: 'Appointment not found' });
     }
 
-    res.json({ appointment });
+    res.json({ appointment: addIntakePendingFlag(appointment) });
   } catch (error) {
     console.error('Get appointment error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });

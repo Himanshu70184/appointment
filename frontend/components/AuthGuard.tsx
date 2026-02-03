@@ -7,6 +7,7 @@ import { getCurrentUser } from '@/store/slices/authSlice'
 import type { AppDispatch, RootState } from '@/store/store'
 import Cookies from 'js-cookie'
 import LoadingSpinner from './LoadingSpinner'
+import api from '@/lib/api'
 
 // Public routes that don't require authentication
 const PUBLIC_ROUTES = ['/login', '/register', '/verify-email', '/setup-password', '/patient/book']
@@ -17,6 +18,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const { user, isAuthenticated, loading } = useSelector((state: RootState) => state.auth)
   const [isInitializing, setIsInitializing] = useState(true)
+  const [isCheckingIntake, setIsCheckingIntake] = useState(false)
 
   useEffect(() => {
     const initAuth = async () => {
@@ -65,8 +67,52 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     }
   }, [isAuthenticated, isInitializing, pathname, user, loading])
 
+  useEffect(() => {
+    if (
+      isInitializing ||
+      loading ||
+      !isAuthenticated ||
+      !user ||
+      user.role_id !== 3
+    ) {
+      return
+    }
+
+    const checkIntakePending = async () => {
+      setIsCheckingIntake(true)
+      try {
+        const response = await api.get('/api/patient-portal/appointments')
+        const appointments = response.data?.appointments || []
+        const pendingIntake = appointments.find((appointment: any) =>
+          appointment.intakePending ||
+          (!appointment.intakeSubmitted &&
+            appointment.status !== 'completed' &&
+            appointment.status !== 'cancelled' &&
+            appointment.status !== 'canceled')
+        )
+
+        if (pendingIntake) {
+          const intakePath = `/patient/intake-form/${pendingIntake._id}`
+          const isOnIntakePage =
+            pathname?.startsWith('/patient/intake-form') ||
+            pathname?.startsWith('/patient/intake')
+
+          if (!isOnIntakePage) {
+            router.push(intakePath)
+          }
+        }
+      } catch (error) {
+        console.error('Failed to check intake pending:', error)
+      } finally {
+        setIsCheckingIntake(false)
+      }
+    }
+
+    checkIntakePending()
+  }, [isAuthenticated, isInitializing, loading, pathname, router, user])
+
   // Show loading spinner while initializing or loading
-  if (isInitializing || loading) {
+  if (isInitializing || loading || isCheckingIntake) {
     return <LoadingSpinner fullScreen text="Authenticating..." />
   }
 

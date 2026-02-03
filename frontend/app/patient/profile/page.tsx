@@ -7,7 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useDispatch, useSelector } from 'react-redux'
 import { updateProfile, changePassword, clearError, clearSuccess } from '@/store/slices/patientPortalSlice'
-import { logout } from '@/store/slices/authSlice'
+import { getCurrentUser, logout } from '@/store/slices/authSlice'
 import type { AppDispatch, RootState } from '@/store/store'
 
 const profileSchema = z.object({
@@ -62,6 +62,12 @@ export default function PatientProfilePage() {
       router.push('/patient/dashboard')
     }
   }, [user, router])
+
+  useEffect(() => {
+    dispatch(getCurrentUser()).unwrap().catch(() => {
+      // Ignore errors; AuthGuard and interceptor handle invalid tokens
+    })
+  }, [dispatch])
 
   useEffect(() => {
     if (user) {

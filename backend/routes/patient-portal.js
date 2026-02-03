@@ -17,6 +17,17 @@ const jwt = require('jsonwebtoken');
 
 const router = express.Router();
 
+const addIntakePendingFlag = (appointment) => {
+  const data = appointment.toObject ? appointment.toObject() : appointment;
+  const status = data.status;
+  const intakePending =
+    !data.intakeSubmitted &&
+    status !== 'completed' &&
+    status !== 'cancelled' &&
+    status !== 'canceled';
+  return { ...data, intakePending };
+};
+
 const getCheapestAvailableDoctor = async ({ state, date, time, slotDuration }) => {
   const requestedDate = new Date(date);
   const requestedDay = requestedDate.getDay();
@@ -553,14 +564,9 @@ router.post('/book-appointment', [
       appointment.payment_id = payment._id;
       appointment.paymentCompleted = true;
       
-      // Set status based on minor flag
-      // Regular patients: scheduled immediately
-      // Minors: requires admin approval
-      if (isMinor) {
-        appointment.status = 'approval'; // Requires admin approval
-      } else {
-        appointment.status = 'scheduled'; // Booked immediately
-      }
+      // Keep pending until intake form is submitted
+      // After intake submission: adults -> scheduled, minors -> approval
+      appointment.status = 'pending';
       
       await appointment.save();
 
@@ -607,8 +613,8 @@ router.post('/book-appointment', [
     res.status(201).json({
       success: true,
       message: isMinor 
-        ? 'Appointment payment successful! Your appointment requires admin approval. Please complete your intake form.'
-        : 'Appointment booked successfully! Please complete your intake form.',
+        ? 'Appointment payment successful! Please complete your intake form to proceed with approval.'
+        : 'Appointment booked successfully! Please complete your intake form to schedule.',
       appointment: {
         _id: appointment._id,
         scheduledDate: appointment.scheduledDate,
@@ -753,8 +759,10 @@ router.post('/submit-intake/:appointmentId', [
     appointment.intakeForm = intakeForm;
     appointment.intakeSubmitted = true;
     appointment.intakeSubmittedAt = new Date();
-    // Keep current status - don't change to 'approval' if already 'scheduled'
-    // Only minors should be in 'approval' status waiting for admin
+    // Move out of pending once intake is submitted
+    if (appointment.status !== 'completed' && appointment.status !== 'cancelled' && appointment.status !== 'canceled') {
+      appointment.status = appointment.isMinor ? 'approval' : 'scheduled';
+    }
     await appointment.save();
 
     // Send notification email to admin/doctor
@@ -843,7 +851,7 @@ router.get('/appointments', auth, authorize('patient'), async (req, res) => {
 
     res.json({
       success: true,
-      appointments
+      appointments: appointments.map(addIntakePendingFlag)
     });
 
   } catch (error) {
@@ -876,7 +884,7 @@ router.get('/appointment/:id', auth, authorize('patient'), async (req, res) => {
 
     res.json({
       success: true,
-      appointment
+      appointment: addIntakePendingFlag(appointment)
     });
 
   } catch (error) {

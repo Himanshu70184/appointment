@@ -8,6 +8,17 @@ const Notification = require('../models/Notification');
 
 const router = express.Router();
 
+const addIntakePendingFlag = (appointment) => {
+  const data = appointment.toObject ? appointment.toObject() : appointment;
+  const status = data.status;
+  const intakePending =
+    !data.intakeSubmitted &&
+    status !== 'completed' &&
+    status !== 'cancelled' &&
+    status !== 'canceled';
+  return { ...data, intakePending };
+};
+
 // @route   GET /api/doctor-portal/dashboard
 // @desc    Get doctor dashboard statistics and upcoming appointments
 // @access  Private (Doctor)
@@ -53,7 +64,7 @@ router.get('/dashboard', [auth, authorize('doctor')], async (req, res) => {
 
     res.json({
       stats,
-      upcomingAppointments,
+      upcomingAppointments: upcomingAppointments.map(addIntakePendingFlag),
       doctorProfile
     });
   } catch (error) {
@@ -108,7 +119,7 @@ router.get('/appointments', [auth, authorize('doctor')], async (req, res) => {
       );
     }
 
-    res.json({ appointments });
+    res.json({ appointments: appointments.map(addIntakePendingFlag) });
   } catch (error) {
     console.error('Get doctor appointments error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -135,7 +146,7 @@ router.get('/appointments/:id', [auth, authorize('doctor')], async (req, res) =>
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    res.json({ appointment });
+    res.json({ appointment: addIntakePendingFlag(appointment) });
   } catch (error) {
     console.error('Get appointment details error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });

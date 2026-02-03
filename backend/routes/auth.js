@@ -173,6 +173,11 @@ router.post('/setup-password', [
         id: user._id,
         name: user.name,
         email: user.email,
+        phone: user.phone,
+        state: user.state,
+        dateOfBirth: user.dateOfBirth,
+        firstName: user.firstName,
+        lastName: user.lastName,
         role_id: user.role_id,
         prn: user.prn
       }
@@ -281,7 +286,12 @@ router.post('/login', [
         email: user.email,
         role_id: user.role_id,
         prn: user.prn,
-        status: user.status
+        status: user.status,
+        phone: user.phone,
+        state: user.state,
+        dateOfBirth: user.dateOfBirth,
+        firstName: user.firstName,
+        lastName: user.lastName
       }
     });
   } catch (error) {
@@ -350,7 +360,12 @@ router.post('/verify-2fa', [
         email: user.email,
         role_id: user.role_id,
         prn: user.prn,
-        status: user.status
+        status: user.status,
+        phone: user.phone,
+        state: user.state,
+        dateOfBirth: user.dateOfBirth,
+        firstName: user.firstName,
+        lastName: user.lastName,
       }
     });
   } catch (error) {
@@ -374,8 +389,10 @@ router.get('/me', auth, async (req, res) => {
         state: user.state,
         role_id: user.role_id,
         prn: user.prn,
-        status: user.status,
         dateOfBirth: user.dateOfBirth,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        status: user.status,
         guardianName: user.guardianName
       }
     });

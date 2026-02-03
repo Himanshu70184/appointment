@@ -53,6 +53,14 @@ const upload = multer({
 router.post('/', [auth, upload.any()], asyncHandler(async (req, res) => {
   const { appointment_id, template_id, formData, saveAsDraft } = req.body;
 
+  if (!appointment_id || !template_id) {
+    return res.status(400).json({ message: 'appointment_id and template_id are required' });
+  }
+
+  if (!formData) {
+    return res.status(400).json({ message: 'formData is required' });
+  }
+
   // Verify appointment exists
   const appointment = await Appointment.findById(appointment_id);
   if (!appointment) {
@@ -77,7 +85,16 @@ router.post('/', [auth, upload.any()], asyncHandler(async (req, res) => {
   }
 
   // Parse form data
-  const parsedFormData = typeof formData === 'string' ? JSON.parse(formData) : formData;
+  let parsedFormData;
+  try {
+    parsedFormData = typeof formData === 'string' ? JSON.parse(formData) : formData;
+  } catch (error) {
+    return res.status(400).json({ message: 'Invalid formData JSON' });
+  }
+
+  if (!Array.isArray(parsedFormData)) {
+    return res.status(400).json({ message: 'formData must be an array of fields' });
+  }
 
   // Process file uploads
   const uploadedFiles = {};
@@ -144,6 +161,9 @@ router.post('/', [auth, upload.any()], asyncHandler(async (req, res) => {
       appointment.intakeSubmitted = true;
       appointment.intakeSubmittedAt = new Date();
       appointment.intakeForm = submission._id;
+      if (appointment.status !== 'completed' && appointment.status !== 'cancelled' && appointment.status !== 'canceled') {
+        appointment.status = appointment.isMinor ? 'approval' : 'scheduled';
+      }
       await appointment.save();
     } catch (error) {
       logger.error('PDF generation failed', { error: error.message });

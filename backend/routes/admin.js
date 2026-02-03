@@ -10,6 +10,17 @@ const Staff = require('../models/Staff');
 
 const router = express.Router();
 
+const addIntakePendingFlag = (appointment) => {
+  const data = appointment.toObject ? appointment.toObject() : appointment;
+  const status = data.status;
+  const intakePending =
+    !data.intakeSubmitted &&
+    status !== 'completed' &&
+    status !== 'cancelled' &&
+    status !== 'canceled';
+  return { ...data, intakePending };
+};
+
 // All routes require admin access
 router.use(auth);
 router.use(authorize('admin'));
@@ -243,7 +254,7 @@ router.get('/appointments', async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(100);
 
-    res.json({ appointments });
+    res.json({ appointments: appointments.map(addIntakePendingFlag) });
   } catch (error) {
     console.error('Get appointments error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
