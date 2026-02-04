@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useSelector } from 'react-redux';
+import type { RootState } from '@/store/store';
 
 interface DoctorFormModalProps {
   isOpen: boolean;
@@ -10,6 +12,8 @@ interface DoctorFormModalProps {
 }
 
 export default function DoctorFormModal({ isOpen, onClose, onSubmit, editingDoctor }: DoctorFormModalProps) {
+  const { user } = useSelector((state: RootState) => state.auth);
+  const isAdmin = user?.role_id === 1;
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -52,7 +56,10 @@ export default function DoctorFormModal({ isOpen, onClose, onSubmit, editingDoct
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    const nextValue = name === 'phone'
+      ? value.replace(/\D/g, '').slice(0, 10)
+      : value;
+    setFormData((prev) => ({ ...prev, [name]: nextValue }));
     setErrors((prev) => ({ ...prev, [name]: '' }));
   };
 
@@ -71,6 +78,8 @@ export default function DoctorFormModal({ isOpen, onClose, onSubmit, editingDoct
     
     if (!formData.phone.trim()) {
       newErrors.phone = 'Phone is required';
+    } else if (!/^\d{10}$/.test(formData.phone.trim())) {
+      newErrors.phone = 'Phone must be 10 digits';
     }
     
     if (!formData.price.trim()) {
@@ -90,15 +99,18 @@ export default function DoctorFormModal({ isOpen, onClose, onSubmit, editingDoct
     if (validateForm()) {
       const submitData: any = {
         name: formData.name,
-        email: formData.email,
         phone: formData.phone,
         consultationFee: parseFloat(formData.price),
         licenseNumber: formData.licenseNumber || `LIC-${Date.now()}`,
         specialties: formData.specialties.length > 0 ? formData.specialties : ['General Practice'],
         states: formData.states,
       };
+
+      if (!editingDoctor || isAdmin) {
+        submitData.email = formData.email;
+      }
       
-      if (!editingDoctor && formData.password) {
+      if (formData.password.trim()) {
         submitData.password = formData.password;
       }
       
@@ -144,7 +156,7 @@ export default function DoctorFormModal({ isOpen, onClose, onSubmit, editingDoct
               onChange={handleChange}
               className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               placeholder="doctor@example.com"
-              disabled={!!editingDoctor}
+              disabled={!!editingDoctor && !isAdmin}
             />
             {errors.email && <p className="text-red-600 text-sm mt-1">{errors.email}</p>}
           </div>
@@ -159,7 +171,8 @@ export default function DoctorFormModal({ isOpen, onClose, onSubmit, editingDoct
               value={formData.phone}
               onChange={handleChange}
               className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Enter phone number"
+              placeholder="1234567890"
+              maxLength={10}
             />
             {errors.phone && <p className="text-red-600 text-sm mt-1">{errors.phone}</p>}
           </div>

@@ -163,13 +163,15 @@ router.post('/', [
 });
 
 // @route   PUT /api/doctors/:id
-// @desc    Update doctor profile (Admin only)
-// @access  Private (Admin)
+// @desc    Update doctor profile (Admin/Staff)
+// @access  Private (Admin/Staff)
 router.put('/:id', [
   auth,
-  authorize('admin'),
+  authorize('admin', 'staff'),
   body('name').optional().trim(),
+  body('email').optional().isEmail(),
   body('phone').optional().trim(),
+  body('phone').optional().matches(/^\d{10}$/).withMessage('Phone must be 10 digits'),
   body('consultationFee').optional().isNumeric(),
   body('password').optional().isLength({ min: 6 }),
   body('licenseNumber').optional().trim(),
@@ -195,12 +197,17 @@ router.put('/:id', [
     if (req.body.consultationFee !== undefined) doctor.consultationFee = parseFloat(req.body.consultationFee);
     if (req.body.isActive !== undefined) doctor.isActive = req.body.isActive;
 
+    if (req.body.email && req.user.role_id !== 1) {
+      return res.status(403).json({ message: 'Only admin can change doctor email' });
+    }
+
     // Update user fields if provided
-    if (req.body.name || req.body.phone || req.body.password) {
+    if (req.body.name || req.body.phone || req.body.password || req.body.email) {
       const user = await User.findById(doctor.user_id);
       if (user) {
         if (req.body.name) user.name = req.body.name;
         if (req.body.phone) user.phone = req.body.phone;
+        if (req.body.email) user.email = req.body.email;
         if (req.body.password) user.password = req.body.password; // Will be hashed by pre-save hook
         await user.save();
       }

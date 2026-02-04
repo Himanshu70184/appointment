@@ -55,6 +55,7 @@ export default function PatientBookingPage() {
   const [selectedCardType, setSelectedCardType] = useState('')
   const [selectedDate, setSelectedDate] = useState('')
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
+  const [slotLockToken, setSlotLockToken] = useState<string | null>(null)
   const [appointmentTypes, setAppointmentTypes] = useState<any[]>([])
   const [showMinorFields, setShowMinorFields] = useState(false)
   const [slotsRequested, setSlotsRequested] = useState(false)
@@ -85,7 +86,26 @@ export default function PatientBookingPage() {
   useEffect(() => {
     setSelectedSlot(null)
     setSlotsRequested(false)
+    setSlotLockToken(null)
   }, [selectedState, selectedCardType, selectedDate])
+
+  useEffect(() => {
+    if (step !== 2 || !slotLockToken) return
+
+    const refreshLock = async () => {
+      try {
+        await api.post('/api/patient-portal/refresh-slot-lock', { lockToken: slotLockToken })
+      } catch (error: any) {
+        const message = error.response?.data?.message || 'Your slot reservation expired. Please choose another time.'
+        alert(message)
+        setStep(1)
+        setSlotLockToken(null)
+      }
+    }
+
+    const intervalId = setInterval(refreshLock, 60 * 1000)
+    return () => clearInterval(intervalId)
+  }, [step, slotLockToken])
 
   useEffect(() => {
     if (dateOfBirth) {
@@ -124,12 +144,26 @@ export default function PatientBookingPage() {
     )
   }
 
-  const handleSlotConfirm = () => {
+  const handleSlotConfirm = async () => {
     if (!selectedSlot) {
       alert('Please select a time slot')
       return
     }
-    setStep(2)
+
+    try {
+      const response = await api.post('/api/patient-portal/lock-slot', {
+        state: selectedState,
+        cardType: selectedCardType,
+        scheduledDate: selectedDate,
+        scheduledTime: selectedSlot,
+      })
+
+      setSlotLockToken(response.data.lockToken)
+      setStep(2)
+    } catch (error: any) {
+      const message = error.response?.data?.message || 'This slot is temporarily locked. Please choose another time.'
+      alert(message)
+    }
   }
 
   const getSlotTime = (slot: any) => {
@@ -180,6 +214,11 @@ export default function PatientBookingPage() {
   const onSubmit = async (data: BookingFormData) => {
     const appointmentType = appointmentTypes.find((c) => c._id === selectedCardType)
     if (!appointmentType || !selectedSlot) return
+    if (!slotLockToken) {
+      alert('Your slot reservation expired. Please choose a time slot again.')
+      setStep(1)
+      return
+    }
 
     const bookingData = {
       firstName: data.firstName,
@@ -192,6 +231,7 @@ export default function PatientBookingPage() {
       cardType: selectedCardType,
       scheduledDate: selectedDate,
       scheduledTime: selectedSlot,
+      slotLockToken,
       couponCode: couponData ? couponCode : undefined,
       guardianName: showMinorFields ? data.guardianName : undefined,
       guardianPhone: showMinorFields ? data.guardianPhone : undefined,
@@ -380,6 +420,40 @@ export default function PatientBookingPage() {
 
   const renderStep2 = () => (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      <div className="card bg-blue-50 border-blue-200">
+        <h3 className="font-semibold text-lg mb-4">📋 Booking Summary</h3>
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-gray-600">State:</span>
+            <span className="font-semibold">
+              {states.find((s: any) => s.code === selectedState)?.name || selectedState || '—'}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-600">Appointment Type:</span>
+            <span className="font-semibold">
+              {appointmentTypes.find((t) => t._id === selectedCardType)?.name || '—'}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-600">Appointment Date:</span>
+            <span className="font-semibold">
+              {selectedDate ? new Date(selectedDate).toLocaleDateString('en-US') : '—'}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-600">Appointment Time:</span>
+            <span className="font-semibold">
+              {selectedSlot ? formatTimeRange(selectedSlot, slotDuration) : '—'}
+            </span>
+          </div>
+          <div className="flex justify-between border-t pt-2 mt-2">
+            <span className="text-gray-600">Amount:</span>
+            <span className="font-semibold text-lg text-blue-600">${finalAmount.toFixed(2)}</span>
+          </div>
+        </div>
+      </div>
+
       <div className="card">
         <h2 className="text-2xl font-bold mb-6">Step 2: Your Information</h2>
 

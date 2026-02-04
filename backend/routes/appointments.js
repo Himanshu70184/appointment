@@ -10,11 +10,15 @@ const Doctor = require('../models/Doctor');
 const DoctorAvailability = require('../models/DoctorAvailability');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
+const SlotLock = require('../models/SlotLock');
 const { auth, authorize } = require('../middleware/auth');
 const { processPayment } = require('../utils/payment');
 const { sendAppointmentNotification, sendTemplateEmail } = require('../utils/email');
+const { paginate, parseSortParam } = require('../utils/pagination');
 
 const router = express.Router();
+
+const SLOT_LOCK_MINUTES = 4;
 
 const addIntakePendingFlag = (appointment) => {
   const data = appointment.toObject ? appointment.toObject() : appointment;
@@ -65,6 +69,14 @@ const findCheapestAvailableDoctor = async ({ state, date, time, slotDuration }) 
     },
     status: { $in: ['scheduled', 'approval', 'pending', 'completed'] }
   });
+
+  const activeLocks = await SlotLock.find({
+    scheduledDate: {
+      $gte: startOfDay,
+      $lt: endOfDay
+    },
+    expiresAt: { $gt: new Date() }
+  }).select('doctor_id scheduledTime');
 
   const [slotHour, slotMin] = time.split(':').map(Number);
   const slotStartMinutes = slotHour * 60 + slotMin;
@@ -139,7 +151,13 @@ const findCheapestAvailableDoctor = async ({ state, date, time, slotDuration }) 
       apt.scheduledTime === time
     );
 
-    if (!isBooked) {
+    const isLocked = activeLocks.some(lock =>
+      lock.doctor_id &&
+      lock.doctor_id.toString() === availability.doctor_id._id.toString() &&
+      lock.scheduledTime === time
+    );
+
+    if (!isBooked && !isLocked) {
       candidates.push({
         doctorId: availability.doctor_id._id,
         consultationFee: doctorDoc.consultationFee || 0
@@ -292,7 +310,8 @@ router.post('/admin-book-patient', [
   body('state').notEmpty().withMessage('State is required'),
   body('cardType').notEmpty().withMessage('Appointment type is required'),
   body('scheduledDate').isISO8601().withMessage('Scheduled date is required'),
-  body('scheduledTime').notEmpty().withMessage('Scheduled time is required')
+  body('scheduledTime').notEmpty().withMessage('Scheduled time is required'),
+  body('slotLockToken').notEmpty().withMessage('Slot lock token is required')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -311,6 +330,7 @@ router.post('/admin-book-patient', [
       cardType,
       scheduledDate,
       scheduledTime,
+      slotLockToken,
       isMinor,
       guardianName,
       guardianPhone,
@@ -341,20 +361,32 @@ router.post('/admin-book-patient', [
       return res.status(404).json({ message: 'Appointment type not found' });
     }
 
-    const slotDuration = appointmentType.duration || 30;
-    const assignedDoctorId = await findCheapestAvailableDoctor({
-      state,
-      date: scheduledDate,
-      time: scheduledTime,
-      slotDuration
+    const now = new Date();
+    const normalizedDate = new Date(scheduledDate);
+    normalizedDate.setHours(0, 0, 0, 0);
+    const slotLock = await SlotLock.findOne({
+      lockToken: slotLockToken,
+      scheduledDate: normalizedDate,
+      scheduledTime,
+      state
     });
 
-    if (!assignedDoctorId) {
+    if (!slotLock || slotLock.expiresAt <= now) {
+      if (slotLock) {
+        await SlotLock.deleteOne({ _id: slotLock._id });
+      }
       return res.status(409).json({
-        message: 'No doctors are available for this time slot. Please choose another time.',
-        slotConflict: true
+        message: 'Your slot reservation expired. Please choose another time.',
+        slotConflict: true,
+        slotExpired: true
       });
     }
+
+    slotLock.expiresAt = new Date(now.getTime() + SLOT_LOCK_MINUTES * 60 * 1000);
+    slotLock.updatedAt = now;
+    await slotLock.save();
+
+    const assignedDoctorId = slotLock.doctor_id;
 
     // Check slot availability
     const existingAppointment = await Appointment.findOne({
@@ -365,6 +397,7 @@ router.post('/admin-book-patient', [
     });
 
     if (existingAppointment) {
+      await SlotLock.deleteOne({ _id: slotLock._id });
       return res.status(409).json({
         message: 'This slot has been booked by someone else. Please choose another slot.',
         slotConflict: true
@@ -413,6 +446,7 @@ router.post('/admin-book-patient', [
     });
 
     await appointment.save();
+    await SlotLock.deleteOne({ _id: slotLock._id });
     console.log('Appointment created:', {
       appointmentId: appointment._id,
       patientId: user._id,
@@ -775,6 +809,27 @@ router.get('/', auth, async (req, res) => {
       query.doctor_id = req.user._id;
     }
     // Admin and Staff can see all
+
+    const { page, limit, sort } = req.query;
+    const populate = [
+      { path: 'patient_id', select: 'name email phone prn' },
+      { path: 'doctor_id', select: 'name email phone' },
+      { path: 'appointmentType', select: 'name price duration cardValidityMonths' }
+    ];
+
+    if (page || limit) {
+      const result = await paginate(Appointment, query, {
+        page: parseInt(page) || 1,
+        limit: parseInt(limit) || 10,
+        sort: parseSortParam(sort) || { createdAt: -1 },
+        populate
+      });
+
+      return res.json({
+        appointments: result.results.map(addIntakePendingFlag),
+        pagination: result.pagination
+      });
+    }
 
     const appointments = await Appointment.find(query)
       .populate('patient_id', 'name email phone prn')

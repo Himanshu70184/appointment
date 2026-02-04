@@ -13,12 +13,26 @@ Complete patient-facing appointment booking system with payment processing, mino
 - Choose state
 - Pick date from calendar
 - View available time slots (filtered by doctor availability)
+ - Temporary slot locking on “Continue to Your Information”
 
 **Technical Details:**
 - Endpoint: `GET /api/patient-portal/available-slots`
 - Filters: state, date, cardType
 - Time Zone: EST (standardized across system)
 - Returns: Available slots with doctor assignment
+- Slot locks are excluded from availability
+
+**Slot Locking:**
+- Endpoint: `POST /api/patient-portal/lock-slot`
+- When user clicks “Continue to Your Information,” the slot is locked
+- Lock duration: 4 minutes (server-side TTL)
+- If locked by another user, response is 409 with a conflict message
+- Lock is refreshed every 60 seconds while user stays on Step 2
+- Refresh endpoint: `POST /api/patient-portal/refresh-slot-lock`
+
+**Lock Duration Configuration (Code Locations):**
+- `backend/routes/patient-portal.js` → `SLOT_LOCK_MINUTES = 4`
+- `backend/routes/appointments.js` → `SLOT_LOCK_MINUTES = 4` (admin/staff booking)
 
 ---
 
@@ -30,6 +44,8 @@ Complete patient-facing appointment booking system with payment processing, mino
 - Create account with email/password
 - Apply discount coupon at checkout
 - Secure payment processing
+ - Slot lock token required to submit booking
+- Booking summary shown above Step 2 (state, type, date, time, amount)
 
 **Validation:**
 - Age calculated from DOB
@@ -41,6 +57,7 @@ Complete patient-facing appointment booking system with payment processing, mino
 - Endpoint: `POST /api/patient-portal/book-appointment`
 - Payment processed via `processPayment()` utility
 - Account created only if email doesn't exist (guest checkout support)
+ - Booking requires `slotLockToken` from lock endpoint
 
 ---
 
@@ -160,6 +177,7 @@ appointment.status = 'scheduled'
 | Endpoint | Method | Access | Purpose |
 |----------|--------|--------|---------|
 | `/api/patient-portal/available-slots` | GET | Public | Fetch time slots |
+| `/api/patient-portal/lock-slot` | POST | Public | Temporarily lock a slot |
 | `/api/patient-portal/book-appointment` | POST | Public | Book & pay |
 | `/api/patient-portal/check-intake-eligibility/:id` | GET | Patient | Check if intake can be submitted |
 | `/api/patient-portal/submit-intake/:id` | POST | Patient | Submit intake form |

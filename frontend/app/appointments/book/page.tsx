@@ -36,6 +36,7 @@ export default function AdminBookAppointmentPage() {
   const [selectedDate, setSelectedDate] = useState('')
   const [availableSlots, setAvailableSlots] = useState<any[]>([])
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
+  const [slotLockToken, setSlotLockToken] = useState<string | null>(null)
   const [slotDuration, setSlotDuration] = useState<number | null>(null)
   const [showMinorFields, setShowMinorFields] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -75,6 +76,29 @@ export default function AdminBookAppointmentPage() {
       setShowMinorFields(isMinor)
     }
   }, [dateOfBirth])
+
+  useEffect(() => {
+    setSelectedSlot(null)
+    setSlotLockToken(null)
+  }, [selectedState, selectedCardType, selectedDate])
+
+  useEffect(() => {
+    if (step !== 2 || !slotLockToken) return
+
+    const refreshLock = async () => {
+      try {
+        await api.post('/api/patient-portal/refresh-slot-lock', { lockToken: slotLockToken })
+      } catch (error: any) {
+        const message = error.response?.data?.message || 'Your slot reservation expired. Please choose another time.'
+        alert(message)
+        setStep(1)
+        setSlotLockToken(null)
+      }
+    }
+
+    const intervalId = setInterval(refreshLock, 60 * 1000)
+    return () => clearInterval(intervalId)
+  }, [step, slotLockToken])
 
   const fetchStates = async () => {
     try {
@@ -121,12 +145,26 @@ export default function AdminBookAppointmentPage() {
     }
   }
 
-  const handleSlotConfirm = () => {
+  const handleSlotConfirm = async () => {
     if (!selectedSlot) {
       alert('Please select a time slot')
       return
     }
-    setStep(2)
+
+    try {
+      const response = await api.post('/api/patient-portal/lock-slot', {
+        state: selectedState,
+        cardType: selectedCardType,
+        scheduledDate: selectedDate,
+        scheduledTime: selectedSlot,
+      })
+
+      setSlotLockToken(response.data.lockToken)
+      setStep(2)
+    } catch (error: any) {
+      const message = error.response?.data?.message || 'This slot is temporarily locked. Please choose another time.'
+      alert(message)
+    }
   }
 
   const formatTimeRange = (startTime: string, duration: number | null) => {
@@ -148,6 +186,11 @@ export default function AdminBookAppointmentPage() {
 
   const onSubmit = async (data: BookingFormData) => {
     if (!selectedSlot || !selectedCardType) return
+    if (!slotLockToken) {
+      alert('Your slot reservation expired. Please choose a time slot again.')
+      setStep(1)
+      return
+    }
 
     if (showMinorFields) {
       if (!data.guardianName || !data.guardianPhone || !data.guardianAddress) {
@@ -169,6 +212,7 @@ export default function AdminBookAppointmentPage() {
         cardType: selectedCardType,
         scheduledDate: selectedDate,
         scheduledTime: selectedSlot,
+        slotLockToken,
         isMinor: showMinorFields,
         guardianName: showMinorFields ? data.guardianName : undefined,
         guardianPhone: showMinorFields ? data.guardianPhone : undefined,
@@ -317,6 +361,45 @@ export default function AdminBookAppointmentPage() {
 
   const renderStep2 = () => (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      {/* Booking Summary */}
+      <div className="card bg-blue-50 border-blue-200">
+        <h3 className="font-semibold text-lg mb-4">📋 Booking Summary</h3>
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-gray-600">State:</span>
+            <span className="font-semibold">{states.find(s => s.code === selectedState)?.name}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-600">Appointment Type:</span>
+            <span className="font-semibold">{appointmentTypes.find(t => t._id === selectedCardType)?.name}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-600">Appointment Date:</span>
+            <span className="font-semibold">
+              {selectedDate ? new Date(selectedDate).toLocaleDateString('en-US') : '—'}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-600">Appointment Time:</span>
+            <span className="font-semibold">{selectedSlot ? formatTimeRange(selectedSlot, slotDuration) : 'N/A'}</span>
+          </div>
+          <div className="flex justify-between border-t pt-2 mt-2">
+            <span className="text-gray-600">Amount:</span>
+            <span className="font-semibold text-lg text-blue-600">
+              ${appointmentTypes.find(t => t._id === selectedCardType)?.price || 0}
+            </span>
+          </div>
+          <div className="bg-green-100 border border-green-400 rounded-lg p-3 mt-4">
+            <p className="text-green-800 font-medium text-sm">
+              ✅ No payment required (Admin/Staff booking)
+            </p>
+            <p className="text-green-700 text-xs mt-1">
+              Patient account will be created and appointment will be confirmed
+            </p>
+          </div>
+        </div>
+      </div>
+
       <div className="card">
         <h2 className="text-2xl font-bold mb-6">Step 2: Patient Information</h2>
         <p className="text-sm text-gray-600 mb-4">
@@ -408,58 +491,21 @@ export default function AdminBookAppointmentPage() {
         )}
       </div>
 
-      {/* Booking Summary */}
-      <div className="card bg-blue-50 border-blue-200">
-        <h3 className="font-semibold text-lg mb-4">📋 Booking Summary</h3>
-        <div className="space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-gray-600">State:</span>
-            <span className="font-semibold">{states.find(s => s.code === selectedState)?.name}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-600">Appointment Type:</span>
-            <span className="font-semibold">{appointmentTypes.find(t => t._id === selectedCardType)?.name}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-600">Date:</span>
-            <span className="font-semibold">{selectedDate}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-600">Time:</span>
-            <span className="font-semibold">{selectedSlot ? formatTimeRange(selectedSlot, slotDuration) : 'N/A'}</span>
-          </div>
-          <div className="flex justify-between border-t pt-2 mt-2">
-            <span className="text-gray-600">Amount:</span>
-            <span className="font-semibold text-lg text-blue-600">
-              ${appointmentTypes.find(t => t._id === selectedCardType)?.price || 0}
-            </span>
-          </div>
-          <div className="bg-green-100 border border-green-400 rounded-lg p-3 mt-4">
-            <p className="text-green-800 font-medium text-sm">
-              ✅ No payment required (Admin/Staff booking)
-            </p>
-            <p className="text-green-700 text-xs mt-1">
-              Patient account will be created and appointment will be confirmed
-            </p>
-          </div>
-        </div>
-
-        <div className="flex gap-3 mt-6">
-          <button
-            type="button"
-            onClick={() => setStep(1)}
-            className="btn-secondary flex-1"
-          >
-            Back
-          </button>
-          <button
-            type="submit"
-            disabled={loading}
-            className="btn-primary flex-1"
-          >
-            {loading ? 'Creating Account & Booking...' : 'Complete Booking'}
-          </button>
-        </div>
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={() => setStep(1)}
+          className="btn-secondary flex-1"
+        >
+          Back
+        </button>
+        <button
+          type="submit"
+          disabled={loading}
+          className="btn-primary flex-1"
+        >
+          {loading ? 'Creating Account & Booking...' : 'Complete Booking'}
+        </button>
       </div>
     </form>
   )

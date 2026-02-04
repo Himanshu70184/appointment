@@ -7,6 +7,16 @@ interface AppointmentState {
   currentAppointment: Appointment | null
   loading: boolean
   error: string | null
+  pagination: {
+    currentPage: number
+    totalPages: number
+    totalItems: number
+    itemsPerPage: number
+    hasNextPage: boolean
+    hasPrevPage: boolean
+    nextPage: number | null
+    prevPage: number | null
+  } | null
 }
 
 export const createAppointment = createAsyncThunk(
@@ -19,9 +29,14 @@ export const createAppointment = createAsyncThunk(
 
 export const getAppointments = createAsyncThunk(
   'appointments/getAll',
-  async () => {
-    const response = await api.get('/api/appointments')
-    return response.data.appointments
+  async ({ page, limit }: { page?: number; limit?: number } = {}) => {
+    const response = await api.get('/api/appointments', {
+      params: { page, limit }
+    })
+    return {
+      appointments: response.data.appointments,
+      pagination: response.data.pagination || null
+    }
   }
 )
 
@@ -50,6 +65,7 @@ const initialState: AppointmentState = {
   currentAppointment: null,
   loading: false,
   error: null,
+  pagination: null,
 }
 
 const appointmentSlice = createSlice({
@@ -78,7 +94,8 @@ const appointmentSlice = createSlice({
       })
       .addCase(getAppointments.fulfilled, (state, action) => {
         state.loading = false
-        state.appointments = action.payload
+        state.appointments = action.payload.appointments
+        state.pagination = action.payload.pagination
       })
       .addCase(getAppointments.rejected, (state, action) => {
         state.loading = false

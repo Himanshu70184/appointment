@@ -25,6 +25,8 @@ Admin/Staff enters:
 - **Appointment Type**: New patient, renewal, consultation, etc.
 - **Doctor**: Select from available doctors
 - **Date & Time**: Choose from available slots
+- **Slot Lock**: When clicking “Continue to Patient Information,” the slot is temporarily locked
+- **Lock Refresh**: While on Step 2, the lock is refreshed every 60 seconds
 
 ### Step 2: Patient Registration
 Admin/Staff enters patient information:
@@ -44,6 +46,8 @@ Backend handles:
 2. **Validate slot availability**
    - Ensure slot not double-booked
    - Return conflict error if slot taken
+  - Enforce temporary slot lock (4-minute TTL)
+  - Refresh lock while staff completes Step 2
 
 3. **Create appointment**
    - Set `paymentCompleted: true` (no payment required)
@@ -156,6 +160,7 @@ const onSubmit = async (data) => {
   "cardType": "64abc...123", // AppointmentType ObjectId
   "scheduledDate": "2024-02-15",
   "scheduledTime": "10:00 AM",
+  "slotLockToken": "lock-token-from-lock-endpoint",
   "doctor_id": "64def...456",
   "isMinor": false,
   "guardianName": "", // Required if isMinor=true
@@ -188,7 +193,7 @@ const onSubmit = async (data) => {
 **Response Errors**:
 - `400`: Validation errors (missing fields, invalid format)
 - `404`: Appointment type not found
-- `409`: Slot conflict (already booked)
+- `409`: Slot conflict (already booked or lock expired)
 - `500`: Server error
 
 **Backend Logic Flow**:
