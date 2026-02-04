@@ -65,10 +65,13 @@ router.get('/active', asyncHandler(async (req, res) => {
     if (mongoose.Types.ObjectId.isValid(state)) {
       resolvedStateId = state;
     } else {
+      const normalizedState = state.trim();
+      const escapedState = normalizedState.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const stateNameRegex = new RegExp(`^${escapedState}$`, 'i');
       const stateDoc = await State.findOne({
         $or: [
-          { code: state.toUpperCase() },
-          { abbreviation: state.toUpperCase() }
+          { code: normalizedState.toUpperCase() },
+          { name: stateNameRegex }
         ]
       }).select('_id');
       if (stateDoc) {

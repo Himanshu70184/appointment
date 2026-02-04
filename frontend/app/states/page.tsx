@@ -19,7 +19,6 @@ interface State {
   _id: string;
   code: string;
   name: string;
-  abbreviation: string;
   region: string;
   isActive: boolean;
   notes?: string;
@@ -32,9 +31,6 @@ export default function StatesPage() {
   
   const [showModal, setShowModal] = useState(false);
   const [editingState, setEditingState] = useState<State | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterActive, setFilterActive] = useState<'all' | 'active' | 'inactive'>('all');
-  const [sortBy, setSortBy] = useState<'name' | 'code' | 'region'>('name');
 
   useEffect(() => {
     dispatch(getStates({}));
@@ -83,33 +79,7 @@ export default function StatesPage() {
     dispatch(toggleStateActive(id));
   };
 
-  // Filter and search
-  let filteredStates = states.filter(state => {
-    const matchesSearch = 
-      state.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      state.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      state.abbreviation.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesFilter = 
-      filterActive === 'all' ||
-      (filterActive === 'active' && state.isActive) ||
-      (filterActive === 'inactive' && !state.isActive);
-    
-    return matchesSearch && matchesFilter;
-  });
-
-  // Sort
-  filteredStates.sort((a, b) => {
-    switch (sortBy) {
-      case 'code':
-        return a.code.localeCompare(b.code);
-      case 'region':
-        return (a.region || '').localeCompare(b.region || '');
-      case 'name':
-      default:
-        return a.name.localeCompare(b.name);
-    }
-  });
+  const filteredStates = [...states].sort((a, b) => a.name.localeCompare(b.name));
 
   // Check admin access
   if (user?.role_id !== 1) {
@@ -159,66 +129,6 @@ export default function StatesPage() {
               <p className="text-red-800">{error}</p>
             </div>
           )}
-
-          {/* Filters and Search */}
-          <div className="mb-8 bg-white rounded-lg shadow p-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Search</label>
-                <input
-                  type="text"
-                  placeholder="Search by name, code, or abbreviation..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
-                <select
-                  value={filterActive}
-                  onChange={(e) => setFilterActive(e.target.value as 'all' | 'active' | 'inactive')}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="all">All States</option>
-                  <option value="active">Active Only</option>
-                  <option value="inactive">Inactive Only</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Sort By</label>
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as 'name' | 'code' | 'region')}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="name">Name</option>
-                  <option value="code">Code</option>
-                  <option value="region">Region</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* Stats Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-            <div className="bg-white rounded-lg shadow p-6">
-              <p className="text-gray-600 text-sm font-medium">Total States</p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">{states.length}</p>
-            </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <p className="text-gray-600 text-sm font-medium">Active States</p>
-              <p className="text-3xl font-bold text-green-600 mt-2">
-                {states.filter(s => s.isActive).length}
-              </p>
-            </div>
-            <div className="bg-white rounded-lg shadow p-6">
-              <p className="text-gray-600 text-sm font-medium">Inactive States</p>
-              <p className="text-3xl font-bold text-red-600 mt-2">
-                {states.filter(s => !s.isActive).length}
-              </p>
-            </div>
-          </div>
 
           {/* States Table */}
           <div className="bg-white rounded-lg shadow overflow-hidden">

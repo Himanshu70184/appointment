@@ -37,8 +37,7 @@ router.get('/', asyncHandler(async (req, res) => {
   if (search) {
     filters.$or = [
       { name: { $regex: search, $options: 'i' } },
-      { code: { $regex: search, $options: 'i' } },
-      { abbreviation: { $regex: search, $options: 'i' } }
+      { code: { $regex: search, $options: 'i' } }
     ];
   }
 
@@ -96,7 +95,6 @@ router.post('/', [
   authorize('admin'),
   body('code').isLength({ min: 2, max: 2 }).withMessage('Code must be 2 characters'),
   body('name').trim().notEmpty().withMessage('State name is required'),
-  body('abbreviation').isLength({ min: 2, max: 2 }).withMessage('Abbreviation must be 2 characters'),
   body('region').isIn(['Northeast', 'Midwest', 'South', 'West', 'Territory']).optional()
 ], async (req, res) => {
   try {
@@ -105,21 +103,22 @@ router.post('/', [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { code, name, abbreviation, region, notes } = req.body;
+    const { code, name, region, notes } = req.body;
+    const normalizedCode = code.toUpperCase();
 
     // Check if state already exists
     const existingState = await State.findOne({
-      $or: [{ code }, { name }, { abbreviation }]
+      $or: [{ code: normalizedCode }, { name }, { abbreviation: normalizedCode }]
     });
 
     if (existingState) {
-      return res.status(400).json({ message: 'State with this code, name, or abbreviation already exists' });
+      return res.status(400).json({ message: 'State with this code or name already exists' });
     }
 
     const state = new State({
-      code: code.toUpperCase(),
+      code: normalizedCode,
       name,
-      abbreviation: abbreviation.toUpperCase(),
+      abbreviation: normalizedCode,
       region,
       notes,
       createdBy: req.user._id,

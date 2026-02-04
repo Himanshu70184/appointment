@@ -7,7 +7,6 @@ interface State {
   _id: string;
   code: string;
   name: string;
-  abbreviation: string;
   region: string;
   isActive: boolean;
   notes?: string;
@@ -26,10 +25,7 @@ export default function StateFormModal({ state, onClose }: StateFormModalProps) 
 
   const [formData, setFormData] = useState({
     code: '',
-    name: '',
-    abbreviation: '',
-    region: 'South',
-    notes: ''
+    name: ''
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -38,10 +34,7 @@ export default function StateFormModal({ state, onClose }: StateFormModalProps) 
     if (state) {
       setFormData({
         code: state.code,
-        name: state.name,
-        abbreviation: state.abbreviation,
-        region: state.region,
-        notes: state.notes || ''
+        name: state.name
       });
     }
   }, [state]);
@@ -57,12 +50,6 @@ export default function StateFormModal({ state, onClose }: StateFormModalProps) 
 
     if (!formData.name.trim()) {
       newErrors.name = 'State name is required';
-    }
-
-    if (!formData.abbreviation.trim()) {
-      newErrors.abbreviation = 'Abbreviation is required';
-    } else if (formData.abbreviation.trim().length !== 2) {
-      newErrors.abbreviation = 'Abbreviation must be 2 characters';
     }
 
     setErrors(newErrors);
@@ -81,20 +68,14 @@ export default function StateFormModal({ state, onClose }: StateFormModalProps) 
       await dispatch(updateState({
         id: state._id,
         data: {
-          name: formData.name,
-          abbreviation: formData.abbreviation.toUpperCase(),
-          region: formData.region as 'Northeast' | 'Midwest' | 'South' | 'West' | 'Territory',
-          notes: formData.notes
+          name: formData.name
         }
       }));
     } else {
       // Create new state
       await dispatch(createState({
         code: formData.code.toUpperCase(),
-        name: formData.name,
-        abbreviation: formData.abbreviation.toUpperCase(),
-        region: formData.region as 'Northeast' | 'Midwest' | 'South' | 'West' | 'Territory',
-        notes: formData.notes
+        name: formData.name
       }));
     }
 
@@ -172,59 +153,6 @@ export default function StateFormModal({ state, onClose }: StateFormModalProps) 
               }`}
             />
             {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name}</p>}
-          </div>
-
-          {/* Abbreviation */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Abbreviation <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              name="abbreviation"
-              value={formData.abbreviation}
-              onChange={handleChange}
-              placeholder="CA"
-              maxLength={2}
-              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                errors.abbreviation ? 'border-red-500' : 'border-gray-300'
-              }`}
-            />
-            {errors.abbreviation && <p className="text-red-500 text-xs mt-1">{errors.abbreviation}</p>}
-          </div>
-
-          {/* Region */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Region
-            </label>
-            <select
-              name="region"
-              value={formData.region}
-              onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              {regions.map(region => (
-                <option key={region} value={region}>
-                  {region}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Notes */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Notes
-            </label>
-            <textarea
-              name="notes"
-              value={formData.notes}
-              onChange={handleChange}
-              placeholder="Add any additional notes..."
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-            />
           </div>
 
           {/* Buttons */}

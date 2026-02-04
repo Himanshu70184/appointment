@@ -10,6 +10,7 @@ import {
 } from '@/store/slices/patientPortalSlice'
 import { logout } from '@/store/slices/authSlice'
 import type { AppDispatch, RootState } from '@/store/store'
+import api from '@/lib/api'
 
 export default function PatientDashboardPage() {
   const router = useRouter()
@@ -18,6 +19,16 @@ export default function PatientDashboardPage() {
     (state: RootState) => state.patientPortal
   )
   const { user } = useSelector((state: RootState) => state.auth)
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+  const [rescheduleAppointment, setRescheduleAppointment] = useState<any>(null)
+  const [rescheduleDate, setRescheduleDate] = useState('')
+  const [availableSlots, setAvailableSlots] = useState<Array<{ time: string; date: string }>>([])
+  const [selectedSlot, setSelectedSlot] = useState('')
+  const [rescheduleLoading, setRescheduleLoading] = useState(false)
+  const [rescheduleError, setRescheduleError] = useState<string | null>(null)
+  const [cancelAppointment, setCancelAppointment] = useState<any>(null)
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancelError, setCancelError] = useState<string | null>(null)
 
   useEffect(() => {
     dispatch(getDashboardStats())
@@ -27,6 +38,104 @@ export default function PatientDashboardPage() {
   const handleLogout = () => {
     dispatch(logout())
     router.push('/login')
+  }
+
+  const getAppointmentTypeId = (appointment: any) => {
+    if (typeof appointment.appointmentType === 'object') {
+      return appointment.appointmentType?._id
+    }
+    return appointment.appointmentType
+  }
+
+  const handleOpenReschedule = (appointment: any) => {
+    setRescheduleAppointment(appointment)
+    setRescheduleDate('')
+    setAvailableSlots([])
+    setSelectedSlot('')
+    setRescheduleError(null)
+    setOpenMenuId(null)
+  }
+
+  const handleFetchSlots = async (date: string, appointment: any) => {
+    if (!appointment) return
+    const cardType = getAppointmentTypeId(appointment)
+    if (!cardType || !appointment.state) {
+      setRescheduleError('Missing appointment type or state')
+      return
+    }
+    try {
+      setRescheduleLoading(true)
+      setRescheduleError(null)
+      const response = await api.get('/api/patient-portal/available-slots', {
+        params: {
+          state: appointment.state,
+          date,
+          cardType
+        }
+      })
+      setAvailableSlots(response.data?.slots || [])
+    } catch (error: any) {
+      setRescheduleError(error.response?.data?.message || 'Failed to fetch slots')
+    } finally {
+      setRescheduleLoading(false)
+    }
+  }
+
+  const handleConfirmReschedule = async () => {
+    if (!rescheduleAppointment || !rescheduleDate || !selectedSlot) return
+    try {
+      setRescheduleLoading(true)
+      await api.put(`/api/patient-portal/appointments/${rescheduleAppointment._id}/reschedule`, {
+        scheduledDate: rescheduleDate,
+        scheduledTime: selectedSlot
+      })
+      setRescheduleAppointment(null)
+      setRescheduleDate('')
+      setAvailableSlots([])
+      setSelectedSlot('')
+      dispatch(getDashboardStats())
+      dispatch(getPatientAppointments())
+    } catch (error: any) {
+      setRescheduleError(error.response?.data?.message || 'Failed to reschedule appointment')
+    } finally {
+      setRescheduleLoading(false)
+    }
+  }
+
+  const handleCancelAppointment = async (appointment: any) => {
+    setOpenMenuId(null)
+    setCancelAppointment(appointment)
+    setCancelReason('')
+    setCancelError(null)
+  }
+
+  const handleConfirmCancel = async () => {
+    if (!cancelAppointment) return
+    if (!cancelReason.trim()) {
+      setCancelError('Cancellation reason is required')
+      return
+    }
+    try {
+      await api.put(`/api/patient-portal/appointments/${cancelAppointment._id}/cancel`, {
+        reason: cancelReason.trim()
+      })
+      setCancelAppointment(null)
+      setCancelReason('')
+      setCancelError(null)
+      dispatch(getDashboardStats())
+      dispatch(getPatientAppointments())
+    } catch (error: any) {
+      setCancelError(error.response?.data?.message || 'Failed to cancel appointment')
+    }
+  }
+
+  const formatTime12Hour = (time: string) => {
+    const [hourStr, minuteStr] = time.split(':')
+    const hour = Number(hourStr)
+    if (Number.isNaN(hour)) return time
+    const period = hour >= 12 ? 'PM' : 'AM'
+    const displayHour = hour % 12 === 0 ? 12 : hour % 12
+    return `${displayHour}:${minuteStr} ${period}`
   }
 
   const getStatusBadgeColor = (status: string) => {
@@ -166,6 +275,8 @@ export default function PatientDashboardPage() {
                       appointment.status !== 'cancelled'
                     const statusLabel = isIntakePending
                       ? 'Intake Pending'
+                      : appointment.status === 'cancelled'
+                      ? 'Canceled'
                       : appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)
                     const statusClass = isIntakePending
                       ? 'bg-orange-100 text-orange-800'
@@ -201,22 +312,51 @@ export default function PatientDashboardPage() {
                             {statusLabel}
                           </span>
                         </td>
-                        <td className="px-4 py-4 whitespace-nowrap text-sm">
-                          <button
-                            onClick={() => router.push(`/patient/appointment/${appointment._id}`)}
-                            className="text-blue-600 hover:text-blue-800 mr-3"
-                          >
-                            View Details
-                          </button>
-                          {appointment.status === 'pending' && !appointment.intakeSubmitted && (
-                            <button
-                              onClick={() =>
-                                router.push(`/patient/intake-form/${appointment._id}`)
-                              }
-                              className="text-green-600 hover:text-green-800"
-                            >
-                              Complete Intake
-                            </button>
+                        <td className="px-4 py-4 whitespace-nowrap text-sm relative">
+                          {appointment.status === 'cancelled' ? (
+                            <span className="text-gray-400">—</span>
+                          ) : (
+                            <div className="relative inline-block text-left">
+                              <button
+                                onClick={() => setOpenMenuId(openMenuId === appointment._id ? null : appointment._id)}
+                                className="text-gray-600 hover:text-gray-900 font-bold text-lg"
+                                title="Actions"
+                              >
+                                ⋮
+                              </button>
+
+                              {openMenuId === appointment._id && (
+                                <>
+                                  <div
+                                    className="fixed inset-0 z-10"
+                                    onClick={() => setOpenMenuId(null)}
+                                  />
+                                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20 flex flex-col">
+                                    <button
+                                      onClick={() => router.push(`/patient/appointment/${appointment._id}`)}
+                                      className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                                    >
+                                      <span>👁️</span>
+                                      View Details
+                                    </button>
+                                    <button
+                                      onClick={() => handleOpenReschedule(appointment)}
+                                      className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                                    >
+                                      <span>🗓️</span>
+                                      Reschedule
+                                    </button>
+                                    <button
+                                      onClick={() => handleCancelAppointment(appointment)}
+                                      className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                                    >
+                                      <span>🗑️</span>
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </>
+                              )}
+                            </div>
                           )}
                         </td>
                       </tr>
@@ -228,6 +368,117 @@ export default function PatientDashboardPage() {
           )}
         </div>
       </div>
+
+      {rescheduleAppointment && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
+            <h3 className="text-xl font-semibold mb-4">Reschedule Appointment</h3>
+
+            {rescheduleError && (
+              <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+                {rescheduleError}
+              </div>
+            )}
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">New Date</label>
+              <input
+                type="date"
+                value={rescheduleDate}
+                onChange={(e) => {
+                  const date = e.target.value
+                  setRescheduleDate(date)
+                  setSelectedSlot('')
+                  setAvailableSlots([])
+                  if (date) {
+                    handleFetchSlots(date, rescheduleAppointment)
+                  }
+                }}
+                className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Available Slots</label>
+              <select
+                value={selectedSlot}
+                onChange={(e) => setSelectedSlot(e.target.value)}
+                className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                disabled={!rescheduleDate || rescheduleLoading}
+              >
+                <option value="">Select a time</option>
+                {availableSlots.map((slot) => (
+                  <option key={slot.time} value={slot.time}>
+                    {formatTime12Hour(slot.time)}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setRescheduleAppointment(null)}
+                className="btn-secondary flex-1"
+                disabled={rescheduleLoading}
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmReschedule}
+                className="btn-primary flex-1"
+                disabled={!rescheduleDate || !selectedSlot || rescheduleLoading}
+              >
+                {rescheduleLoading ? 'Saving...' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {cancelAppointment && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
+            <h3 className="text-xl font-semibold mb-4">Cancel Appointment</h3>
+
+            {cancelError && (
+              <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+                {cancelError}
+              </div>
+            )}
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+              <textarea
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+                rows={4}
+                placeholder="Please provide a reason for cancellation"
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setCancelAppointment(null)}
+                className="btn-secondary flex-1"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCancel}
+                className="btn-primary flex-1"
+                disabled={!cancelReason.trim()}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

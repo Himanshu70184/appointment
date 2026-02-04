@@ -57,7 +57,7 @@ export interface State {
   _id: string
   code: string
   name: string
-  abbreviation: string
+  abbreviation?: string
   region: 'Northeast' | 'Midwest' | 'South' | 'West' | 'Territory'
   isActive: boolean
   notes?: string

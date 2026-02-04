@@ -25,6 +25,15 @@ export interface Appointment {
   scheduledTime: string;
   status: string;
   state: string;
+  stateName?: string;
+  patient_id?: {
+    name?: string;
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+    phone?: string;
+    dateOfBirth?: string;
+  };
   adjustedAmount?: number;
   doctor_id?: {
     name: string;

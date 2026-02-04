@@ -85,6 +85,9 @@ const appointmentSchema = new mongoose.Schema({
   adminNotes: {
     type: String
   },
+  cancelReason: {
+    type: String
+  },
   clinicalNotes: {
     type: String
   },

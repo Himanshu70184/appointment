@@ -656,7 +656,14 @@ router.get('/check-intake-eligibility/:appointmentId', auth, authorize('patient'
     }
 
     // Verify patient owns this appointment
-    if (appointment.patient_id.toString() !== req.user._id.toString()) {
+    const appointmentPatientId = appointment.patient_id?._id || appointment.patient_id;
+    const isOwnerById = appointmentPatientId && appointmentPatientId.toString() === req.user._id.toString();
+    const isOwnerByEmail = appointment.patient_id?.email && appointment.patient_id.email === req.user.email;
+
+    const isPatient = req.user.role_id === 3;
+    const isAdminOrStaff = req.user.role_id === 1 || req.user.role_id === 4;
+
+    if (isPatient && !isOwnerById && !isOwnerByEmail && !isAdminOrStaff) {
       return res.status(403).json({ message: 'Unauthorized access to this appointment' });
     }
 
@@ -728,7 +735,11 @@ router.post('/submit-intake/:appointmentId', [
     }
 
     // Verify patient owns this appointment
-    if (appointment.patient_id.toString() !== req.user._id.toString()) {
+    const appointmentPatientId = appointment.patient_id?._id || appointment.patient_id;
+    const isOwnerById = appointmentPatientId && appointmentPatientId.toString() === req.user._id.toString();
+    const isOwnerByEmail = appointment.patient_id?.email && appointment.patient_id.email === req.user.email;
+
+    if (!isOwnerById && !isOwnerByEmail) {
       return res.status(403).json({ message: 'Unauthorized access to this appointment' });
     }
 
@@ -809,7 +820,7 @@ router.post('/submit-intake/:appointmentId', [
 // @route   GET /api/patient-portal/dashboard-stats
 // @desc    Get patient dashboard statistics
 // @access  Private (Patient)
-router.get('/dashboard-stats', auth, authorize('patient'), async (req, res) => {
+router.get('/dashboard-stats', auth, async (req, res) => {
   try {
     const appointments = await Appointment.find({ patient_id: req.user._id });
 
@@ -841,7 +852,7 @@ router.get('/dashboard-stats', auth, authorize('patient'), async (req, res) => {
 // @route   GET /api/patient-portal/appointments
 // @desc    Get all patient appointments
 // @access  Private (Patient)
-router.get('/appointments', auth, authorize('patient'), async (req, res) => {
+router.get('/appointments', auth, async (req, res) => {
   try {
     const appointments = await Appointment.find({ patient_id: req.user._id })
       .populate('doctor_id', 'name email')
@@ -866,9 +877,15 @@ router.get('/appointments', auth, authorize('patient'), async (req, res) => {
 // @route   GET /api/patient-portal/appointment/:id
 // @desc    Get appointment details
 // @access  Private (Patient)
-router.get('/appointment/:id', auth, authorize('patient'), async (req, res) => {
+router.get('/appointment/:id', auth, async (req, res) => {
   try {
-    const appointment = await Appointment.findById(req.params.id)
+    const query = { _id: req.params.id };
+    if (req.user.role_id === 3) {
+      query.patient_id = req.user._id;
+    }
+
+    const appointment = await Appointment.findOne(query)
+      .populate('patient_id', 'name firstName lastName email phone dateOfBirth')
       .populate('doctor_id', 'name email phone')
       .populate('appointmentType', 'name description price duration cardValidityMonths')
       .populate('payment_id', 'amount status transactionId createdAt');
@@ -877,14 +894,14 @@ router.get('/appointment/:id', auth, authorize('patient'), async (req, res) => {
       return res.status(404).json({ message: 'Appointment not found' });
     }
 
-    // Verify patient owns this appointment
-    if (appointment.patient_id.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: 'Unauthorized access to this appointment' });
-    }
+    const stateRecord = await State.findOne({ code: appointment.state }).select('name');
 
     res.json({
       success: true,
-      appointment: addIntakePendingFlag(appointment)
+      appointment: {
+        ...addIntakePendingFlag(appointment),
+        stateName: stateRecord?.name || appointment.state
+      }
     });
 
   } catch (error) {
@@ -893,6 +910,159 @@ router.get('/appointment/:id', auth, authorize('patient'), async (req, res) => {
       message: 'Failed to fetch appointment', 
       error: error.message 
     });
+  }
+});
+
+// @route   PUT /api/patient-portal/appointments/:id/reschedule
+// @desc    Reschedule patient appointment
+// @access  Private (Patient)
+router.put('/appointments/:id/reschedule', [
+  auth,
+  authorize('patient'),
+  body('scheduledDate').notEmpty().withMessage('Scheduled date is required'),
+  body('scheduledTime').notEmpty().withMessage('Scheduled time is required')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { scheduledDate, scheduledTime } = req.body;
+
+    const appointment = await Appointment.findById(req.params.id)
+      .populate('patient_id');
+
+    if (!appointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
+
+    if (appointment.patient_id._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Unauthorized access to this appointment' });
+    }
+
+    if (['completed', 'cancelled'].includes(appointment.status)) {
+      return res.status(400).json({ message: 'Cannot reschedule a completed or cancelled appointment' });
+    }
+
+    const appointmentType = await AppointmentType.findById(appointment.appointmentType);
+    if (!appointmentType) {
+      return res.status(404).json({ message: 'Appointment type not found' });
+    }
+
+    const slotDuration = appointmentType.duration || 30;
+    const assignedDoctorId = await getCheapestAvailableDoctor({
+      state: appointment.state,
+      date: scheduledDate,
+      time: scheduledTime,
+      slotDuration
+    });
+
+    if (!assignedDoctorId) {
+      return res.status(409).json({
+        message: 'No doctors are available for this time slot. Please choose another time.',
+        slotConflict: true
+      });
+    }
+
+    const existingAppointment = await Appointment.findOne({
+      _id: { $ne: appointment._id },
+      scheduledDate: new Date(scheduledDate),
+      scheduledTime,
+      doctor_id: assignedDoctorId,
+      status: { $in: ['scheduled', 'approval', 'pending', 'rescheduled'] }
+    });
+
+    if (existingAppointment) {
+      return res.status(409).json({
+        message: 'This slot has been booked by someone else. Please choose another slot.',
+        slotConflict: true
+      });
+    }
+
+    const previousDoctorId = appointment.doctor_id?.toString();
+
+    appointment.scheduledDate = new Date(scheduledDate);
+    appointment.scheduledTime = scheduledTime;
+    appointment.doctor_id = assignedDoctorId;
+    appointment.status = 'rescheduled';
+    await appointment.save();
+
+    if (previousDoctorId && previousDoctorId !== assignedDoctorId.toString()) {
+      await Notification.create({
+        user_id: previousDoctorId,
+        type: 'appointment',
+        title: 'Appointment Cancelled',
+        message: `Appointment ${appointment._id} was rescheduled to another doctor.`,
+        related_id: appointment._id
+      });
+    }
+
+    await Notification.create({
+      user_id: appointment.patient_id._id,
+      type: 'appointment',
+      title: 'Appointment Rescheduled',
+      message: `Your appointment has been rescheduled to ${new Date(scheduledDate).toLocaleString()}`,
+      related_id: appointment._id
+    });
+
+    res.json({
+      message: 'Appointment rescheduled',
+      appointment: addIntakePendingFlag(appointment)
+    });
+  } catch (error) {
+    console.error('Patient reschedule error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   PUT /api/patient-portal/appointments/:id/cancel
+// @desc    Cancel patient appointment
+// @access  Private (Patient)
+router.put('/appointments/:id/cancel', [
+  auth,
+  authorize('patient'),
+  body('reason').trim().notEmpty().withMessage('Cancellation reason is required')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { reason } = req.body;
+
+    const appointment = await Appointment.findById(req.params.id)
+      .populate('patient_id');
+
+    if (!appointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
+
+    if (appointment.patient_id._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Unauthorized access to this appointment' });
+    }
+
+    if (appointment.status === 'cancelled') {
+      return res.status(400).json({ message: 'Appointment is already cancelled' });
+    }
+
+    appointment.status = 'cancelled';
+    appointment.cancelReason = reason;
+    await appointment.save();
+
+    await Notification.create({
+      user_id: appointment.patient_id._id,
+      type: 'appointment',
+      title: 'Appointment Cancelled',
+      message: 'Your appointment has been cancelled.',
+      related_id: appointment._id
+    });
+
+    res.json({ message: 'Appointment cancelled', appointment });
+  } catch (error) {
+    console.error('Patient cancel error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
