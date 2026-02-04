@@ -222,41 +222,6 @@ export default function DoctorProfilePage() {
                     <p className="text-gray-900">{profile?.user?.phone || 'Not provided'}</p>
                   )}
                 </div>
-
-                {profile?.doctorProfile && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">License Number</label>
-                      <p className="text-gray-900">{profile.doctorProfile.licenseNumber}</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Specialties</label>
-                      <div className="flex flex-wrap gap-2">
-                        {profile.doctorProfile.specialties?.map((specialty: string) => (
-                          <span
-                            key={specialty}
-                            className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800"
-                          >
-                            {specialty}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Licensed States</label>
-                      <div className="flex flex-wrap gap-2">
-                        {profile.doctorProfile.states?.map((state: string) => (
-                          <span
-                            key={state}
-                            className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800"
-                          >
-                            {state}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  </>
-                )}
               </div>
             </div>
           </div>

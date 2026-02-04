@@ -43,19 +43,14 @@ router.get('/dashboard', [auth, authorize('doctor')], async (req, res) => {
       completed: allAppointments.filter(a => a.status === 'completed').length
     };
 
-    // Get upcoming appointments (next 7 days, scheduled status)
+    // Get upcoming appointments (latest 10 appointments excluding cancelled and completed)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const nextWeek = new Date(today);
-    nextWeek.setDate(nextWeek.getDate() + 7);
 
     const upcomingAppointments = await Appointment.find({
       doctor_id: req.user._id,
-      status: 'scheduled',
-      scheduledDate: {
-        $gte: today,
-        $lte: nextWeek
-      }
+      status: { $nin: ['cancelled', 'completed'] }, // Exclude cancelled and completed
+      scheduledDate: { $gte: today } // Only future appointments
     })
       .populate('patient_id', 'name email phone')
       .populate('appointmentType', 'name price duration cardValidityMonths')
