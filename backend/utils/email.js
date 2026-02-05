@@ -48,7 +48,7 @@ const sendEmail = async (to, subject, html, text = null) => {
 
 const sendWelcomeEmail = async (user, verificationToken, baseUrl) => {
   const frontendUrl = baseUrl || process.env.FRONTEND_URL;
-  const verificationUrl = `${frontendUrl}/verify-email?token=${verificationToken}`;
+  const verificationUrl = verificationToken ? `${frontendUrl}/verify-email?token=${verificationToken}` : null;
   
   const html = `
     <!DOCTYPE html>
@@ -64,18 +64,21 @@ const sendWelcomeEmail = async (user, verificationToken, baseUrl) => {
       <div class="container">
         <h2>Welcome to EHR System!</h2>
         <p>Hello ${user.name},</p>
-        <p>Thank you for registering with our Electronic Health Records system. Please verify your email address by clicking the button below:</p>
-        <a href="${verificationUrl}" class="button">Verify Email</a>
-        <p>Or copy and paste this link into your browser:</p>
-        <p>${verificationUrl}</p>
-        <p>This link will expire in 24 hours.</p>
+        <p>Thank you for registering with our Electronic Health Records system.</p>
+        ${verificationUrl ? `
+          <p>Please verify your email address by clicking the button below:</p>
+          <a href="${verificationUrl}" class="button">Verify Email</a>
+          <p>Or copy and paste this link into your browser:</p>
+          <p>${verificationUrl}</p>
+          <p>This link will expire in 24 hours.</p>
+        ` : '<p>Your account is ready to use.</p>'}
         <p>Best regards,<br>EHR System Team</p>
       </div>
     </body>
     </html>
   `;
 
-  return await sendEmail(user.email, 'Welcome - Verify Your Email', html);
+  return await sendEmail(user.email, verificationUrl ? 'Welcome - Verify Your Email' : 'Welcome to EHR System', html);
 };
 
 const sendPasswordSetupEmail = async (user, resetToken, baseUrl) => {

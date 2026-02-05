@@ -1,5 +1,7 @@
 const express = require('express');
 const multer = require('multer');
+const mongoose = require('mongoose');
+const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs').promises;
 const { auth } = require('../middleware/auth');
@@ -35,22 +37,60 @@ const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
   fileFilter: (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|pdf|doc|docx/;
+    const allowedTypes = /jpeg|jpg|png|webp|heic|heif/;
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
-    
-    if (extname && mimetype) {
+    const mimetype = file.mimetype?.startsWith('image/') && allowedTypes.test(file.mimetype);
+
+    if (extname || mimetype) {
       cb(null, true);
     } else {
-      cb(new Error('Only images, PDFs, and documents are allowed'));
+      cb(new Error('Only image files are allowed'));
     }
   }
 });
 
+const handleUpload = (req, res, next) => {
+  upload.any()(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ message: err.message || 'File upload error' });
+    }
+    return next();
+  });
+};
+
+const compressUploadedImages = async (files) => {
+  if (!files || files.length === 0) return;
+
+  const tasks = files.map(async (file) => {
+    if (!file.mimetype?.startsWith('image/')) return;
+
+    const ext = path.extname(file.originalname).toLowerCase().replace('.', '');
+    const tempPath = `${file.path}.tmp`;
+
+    try {
+      const image = sharp(file.path).rotate();
+
+      if (ext === 'png') {
+        await image.png({ compressionLevel: 8 }).toFile(tempPath);
+      } else if (ext === 'webp') {
+        await image.webp({ quality: 80 }).toFile(tempPath);
+      } else {
+        await image.jpeg({ quality: 80, mozjpeg: true }).toFile(tempPath);
+      }
+
+      await fs.rename(tempPath, file.path);
+    } catch (error) {
+      logger.warn('Image compression failed', { file: file.originalname, error: error.message });
+    }
+  });
+
+  await Promise.all(tasks);
+};
+
 // @route   POST /api/intake-form-submissions
 // @desc    Submit intake form (patient)
 // @access  Private (Patient)
-router.post('/', [auth, upload.any()], asyncHandler(async (req, res) => {
+router.post('/', [auth, handleUpload], asyncHandler(async (req, res) => {
   const { appointment_id, template_id, formData, saveAsDraft } = req.body;
 
   if (!appointment_id || !template_id) {
@@ -59,6 +99,14 @@ router.post('/', [auth, upload.any()], asyncHandler(async (req, res) => {
 
   if (!formData) {
     return res.status(400).json({ message: 'formData is required' });
+  }
+
+  if (!mongoose.Types.ObjectId.isValid(appointment_id)) {
+    return res.status(400).json({ message: 'Invalid appointment_id' });
+  }
+
+  if (!mongoose.Types.ObjectId.isValid(template_id)) {
+    return res.status(400).json({ message: 'Invalid template_id' });
   }
 
   // Verify appointment exists
@@ -96,9 +144,21 @@ router.post('/', [auth, upload.any()], asyncHandler(async (req, res) => {
     return res.status(400).json({ message: 'formData must be an array of fields' });
   }
 
+  // Normalize fields to satisfy schema requirements
+  parsedFormData = parsedFormData
+    .map((field) => ({
+      fieldId: field.fieldId || field.id || '',
+      fieldType: field.fieldType || 'text',
+      label: field.label || field.fieldId || field.id || 'Field',
+      value: field.value ?? null,
+      fileUrls: field.fileUrls
+    }))
+    .filter((field) => field.fieldId);
+
   // Process file uploads
   const uploadedFiles = {};
   if (req.files && req.files.length > 0) {
+    await compressUploadedImages(req.files);
     req.files.forEach(file => {
       const fieldName = file.fieldname;
       if (!uploadedFiles[fieldName]) {
@@ -147,7 +207,12 @@ router.post('/', [auth, upload.any()], asyncHandler(async (req, res) => {
     });
   }
 
-  await submission.save();
+  try {
+    await submission.save();
+  } catch (error) {
+    logger.error('Failed to save intake submission', { error: error.message });
+    return res.status(400).json({ message: error.message || 'Failed to save intake form submission' });
+  }
 
   // Generate PDF if submitted (not draft)
   if (saveAsDraft !== 'true') {

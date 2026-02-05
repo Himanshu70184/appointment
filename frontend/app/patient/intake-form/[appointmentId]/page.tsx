@@ -33,6 +33,7 @@ export default function PatientIntakeFormPage() {
   const [fileInputs, setFileInputs] = useState<Record<string, File[]>>({})
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [fileErrors, setFileErrors] = useState<Record<string, string>>({})
 
   useEffect(() => {
     dispatch(clearError())
@@ -118,9 +119,18 @@ export default function PatientIntakeFormPage() {
 
   const handleFileChange = (fieldId: string, files: FileList | null) => {
     if (files) {
+      setFileErrors(prev => {
+        const updated = { ...prev }
+        delete updated[fieldId]
+        return updated
+      })
       setFileInputs(prev => ({ ...prev, [fieldId]: Array.from(files) }))
       // Clear error for this field
       if (errors[fieldId]) {
+          const handleUploadError = (fieldId: string, message: string) => {
+            setFileErrors(prev => ({ ...prev, [fieldId]: message }))
+          }
+
         setErrors(prev => {
           const newErrors = { ...prev }
           delete newErrors[fieldId]
@@ -214,7 +224,12 @@ export default function PatientIntakeFormPage() {
 
     formData.append('formData', JSON.stringify(submissionData))
 
-    await dispatch(submitIntakeForm({ formData, saveAsDraft }))
+    try {
+      await dispatch(submitIntakeForm({ formData, saveAsDraft })).unwrap()
+    } catch (err: any) {
+      const message = err?.message || err?.response?.data?.message || 'Failed to submit intake form'
+      handleUploadError('global', message)
+    }
   }
 
   const renderField = (field: IntakeFormField) => {
@@ -408,9 +423,12 @@ export default function PatientIntakeFormPage() {
               type="file"
               onChange={(e) => handleFileChange(field.fieldId, e.target.files)}
               className={commonClasses}
-              accept="image/*,application/pdf,.doc,.docx"
+              accept="image/*"
               multiple
             />
+            {fileErrors[field.fieldId] && (
+              <p className="text-sm text-red-600 mt-1">{fileErrors[field.fieldId]}</p>
+            )}
             {fileInputs[field.fieldId] && fileInputs[field.fieldId].length > 0 && (
               <p className="text-sm text-gray-600 mt-1">
                 {fileInputs[field.fieldId].length} file(s) selected
@@ -471,6 +489,12 @@ export default function PatientIntakeFormPage() {
           {error && (
             <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">
               {error}
+            </div>
+          )}
+
+          {fileErrors.global && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">
+              {fileErrors.global}
             </div>
           )}
 

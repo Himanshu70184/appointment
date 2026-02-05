@@ -49,23 +49,19 @@ router.post('/register', [
       status: 'new'
     });
 
-    // Generate email verification token
-    const verificationToken = crypto.randomBytes(32).toString('hex');
-    user.emailVerificationToken = crypto
-      .createHash('sha256')
-      .update(verificationToken)
-      .digest('hex');
-    user.emailVerificationExpires = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+    // Email verification disabled
+    user.emailVerified = true;
+    user.status = 'active';
 
     await user.save();
 
     const frontendUrl = req.get('origin') || process.env.FRONTEND_URL;
 
-    // Send welcome email
-    await sendWelcomeEmail(user, verificationToken, frontendUrl);
+    // Optional welcome email (no verification)
+    sendWelcomeEmail(user, null, frontendUrl).catch(() => {});
 
     res.status(201).json({
-      message: 'Registration successful. Please check your email to verify your account.',
+      message: 'Registration successful.',
       userId: user._id
     });
   } catch (error) {
@@ -209,12 +205,8 @@ router.post('/login', [
       return res.status(401).json({ message: 'Invalid email or password. Please check your credentials and try again.' });
     }
 
-    if (!user.emailVerified) {
-      return res.status(403).json({ message: 'Email not verified. Please check your email inbox for the verification link.' });
-    }
-
     if (!user.password) {
-      return res.status(403).json({ message: 'Account setup incomplete. Please check your email for password setup instructions.' });
+      return res.status(403).json({ message: 'Account setup incomplete. Please set your password.' });
     }
 
     const isMatch = await user.comparePassword(password);

@@ -194,6 +194,37 @@ router.get('/available-slots', async (req, res) => {
 
     const slotDuration = appointmentType.duration || 30; // Default to 30 minutes
 
+    const EST_TIMEZONE = 'America/New_York';
+    const getEstParts = (inputDate) => {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: EST_TIMEZONE,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      }).formatToParts(inputDate);
+
+      const map = parts.reduce((acc, part) => {
+        acc[part.type] = part.value;
+        return acc;
+      }, {});
+
+      return {
+        year: map.year,
+        month: map.month,
+        day: map.day,
+        hour: Number(map.hour),
+        minute: Number(map.minute)
+      };
+    };
+
+    const estNowParts = getEstParts(new Date());
+    const estTodayStr = `${estNowParts.year}-${estNowParts.month}-${estNowParts.day}`;
+    const isTodayInEst = date === estTodayStr;
+    const minVisibleMinutes = estNowParts.hour * 60 + estNowParts.minute + 30;
+
     // Find doctors available in the selected state using DoctorAvailability collection
     const requestedDate = new Date(date);
     const requestedDay = requestedDate.getDay();
@@ -313,6 +344,9 @@ router.get('/available-slots', async (req, res) => {
 
       // Generate time slots based on appointment type duration
       for (let minutes = startMinutes; minutes + slotDuration <= endMinutes; minutes += slotDuration) {
+        if (isTodayInEst && minutes < minVisibleMinutes) {
+          continue; // Skip slots that are within 30 minutes of current EST time
+        }
         // Skip slots during break time
         if (breakStartMinutes !== null && breakEndMinutes !== null) {
           // Check if slot overlaps with break
@@ -667,44 +701,15 @@ router.post('/book-appointment', [
         guardianName: isMinor ? guardianName : undefined,
         guardianPhone: isMinor ? guardianPhone : undefined,
         guardianAddress: isMinor ? guardianAddress : undefined,
-        status: 'new'
+        status: 'active',
+        emailVerified: true
       });
 
-      // Generate email verification token
-      const verificationToken = crypto.randomBytes(32).toString('hex');
-      user.emailVerificationToken = crypto
-        .createHash('sha256')
-        .update(verificationToken)
-        .digest('hex');
-      user.emailVerificationExpires = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
-
       await user.save();
-
-      const frontendUrl = req.get('origin') || process.env.FRONTEND_URL;
-
-      // Send verification email (do not block booking flow if email fails)
-      try {
-        await sendWelcomeEmail(user, verificationToken, frontendUrl);
-      } catch (emailError) {
-        console.error('Failed to send verification email:', emailError);
-      }
     } else if (user && !user.emailVerified) {
-      const frontendUrl = req.get('origin') || process.env.FRONTEND_URL;
-
-      // Re-send verification email for existing unverified users
-      const verificationToken = crypto.randomBytes(32).toString('hex');
-      user.emailVerificationToken = crypto
-        .createHash('sha256')
-        .update(verificationToken)
-        .digest('hex');
-      user.emailVerificationExpires = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+      user.emailVerified = true;
+      user.status = user.status === 'new' ? 'active' : user.status;
       await user.save();
-
-      try {
-        await sendWelcomeEmail(user, verificationToken, frontendUrl);
-      } catch (emailError) {
-        console.error('Failed to re-send verification email:', emailError);
-      }
     }
 
     // Create appointment

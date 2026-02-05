@@ -28,11 +28,19 @@ interface RevenueChartProps {
   data?: number[]
   total?: number
   labels?: string[]
-  range?: 'monthly' | 'weekly' | 'yearly'
-  onRangeChange?: (range: 'monthly' | 'weekly' | 'yearly') => void
+  range?: 'monthly' | 'weekly' | 'yearly' | 'all'
+  onRangeChange?: (range: 'monthly' | 'weekly' | 'yearly' | 'all') => void
+  showRangeSelector?: boolean
 }
 
-export default function RevenueChart({ data, total, labels, range = 'monthly', onRangeChange }: RevenueChartProps) {
+export default function RevenueChart({
+  data,
+  total,
+  labels,
+  range = 'monthly',
+  onRangeChange,
+  showRangeSelector = true
+}: RevenueChartProps) {
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
   const chartLabels = labels && labels.length > 0 ? labels : months
   
@@ -110,15 +118,18 @@ export default function RevenueChart({ data, total, labels, range = 'monthly', o
             ${Number(total || 0).toLocaleString()}
           </span>
         </div>
-        <select
-          value={range}
-          onChange={(e) => onRangeChange?.(e.target.value as 'monthly' | 'weekly' | 'yearly')}
-          className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
-        >
-          <option value="monthly">Monthly</option>
-          <option value="weekly">Weekly</option>
-          <option value="yearly">Yearly</option>
-        </select>
+        {showRangeSelector && (
+          <select
+            value={range}
+            onChange={(e) => onRangeChange?.(e.target.value as 'monthly' | 'weekly' | 'yearly' | 'all')}
+            className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
+          >
+            <option value="monthly">Monthly</option>
+            <option value="weekly">Weekly</option>
+            <option value="yearly">Yearly</option>
+            <option value="all">All</option>
+          </select>
+        )}
       </div>
       <div className="h-64">
         <Line data={chartData} options={options} />

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useDispatch, useSelector } from 'react-redux'
 import { getCurrentUser } from '@/store/slices/authSlice'
 import { getAppointments } from '@/store/slices/appointmentSlice'
+import { getStates } from '@/store/slices/stateSlice'
 import DashboardLayout from '@/components/DashboardLayout'
 import StatCard from '@/components/StatCard'
 import AppointmentChart from '@/components/AppointmentChart'
@@ -17,10 +18,11 @@ export default function DashboardPage() {
   const dispatch = useDispatch<AppDispatch>()
   const { user } = useSelector((state: RootState) => state.auth)
   const { appointments } = useSelector((state: RootState) => state.appointments)
+  const { states: statesFromStore } = useSelector((state: RootState) => state.states)
   const [dashboardData, setDashboardData] = useState<any>(null)
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list')
-  const [appointmentRange, setAppointmentRange] = useState<'monthly' | 'weekly' | 'yearly'>('monthly')
-  const [revenueRange, setRevenueRange] = useState<'monthly' | 'weekly' | 'yearly'>('monthly')
+  const [appointmentRange, setAppointmentRange] = useState<'monthly' | 'weekly' | 'yearly' | 'all'>('all')
+  const [selectedState, setSelectedState] = useState('')
 
   useEffect(() => {
     if (user) {
@@ -29,6 +31,7 @@ export default function DashboardPage() {
         return
       }
       dispatch(getAppointments())
+      dispatch(getStates({}))
       if (user.role_id === 1) {
         fetchAdminStats()
       }
@@ -57,20 +60,10 @@ export default function DashboardPage() {
     )
   }
 
-  // Calculate appointment statistics
-  const totalAppointments = appointments.length
-  const scheduledAppointments = appointments.filter((a: any) => a.status === 'scheduled').length
-  const approvalAppointments = appointments.filter((a: any) => a.status === 'approval').length
-  const rescheduledAppointments = appointments.filter((a: any) => a.status === 'rescheduled').length
-  const canceledAppointments = appointments.filter((a: any) => a.status === 'cancelled').length
-  const completedAppointments = appointments.filter((a: any) => a.status === 'completed').length
-  const pendingAppointments = appointments.filter((a: any) => a.status === 'pending').length
-  const onHoldAppointments = appointments.filter((a: any) => a.status === 'on-hold').length
-
-  const buildMonthlyAppointments = () => {
+  const buildMonthlyAppointments = (list: any[]) => {
     const monthly = Array(12).fill(0)
     const currentYear = new Date().getFullYear()
-    appointments.forEach((appointment: any) => {
+    list.forEach((appointment: any) => {
       const dateValue = appointment.scheduledDate || appointment.appointmentDate || appointment.createdAt
       if (!dateValue) return
       const date = new Date(dateValue)
@@ -92,6 +85,88 @@ export default function DashboardPage() {
     const date = new Date(dateValue)
     return Number.isNaN(date.getTime()) ? null : date
   }
+
+  const stateMaps = useMemo(() => {
+    const byCode: Record<string, { code: string; name: string }> = {}
+    const byName: Record<string, { code: string; name: string }> = {}
+    statesFromStore.forEach((state) => {
+      if (!state.code || !state.name) return
+      byCode[state.code] = { code: state.code, name: state.name }
+      byName[state.name.toLowerCase()] = { code: state.code, name: state.name }
+    })
+    return { byCode, byName }
+  }, [statesFromStore])
+
+  const filteredByState = useMemo(() => {
+    if (!selectedState) return appointments
+    return appointments.filter((appointment: any) => {
+      const rawState = appointment.state
+      if (!rawState) return false
+      const normalized = typeof rawState === 'string' ? rawState.trim() : rawState
+      const fromCode = stateMaps.byCode[normalized as string]
+      const fromName = typeof normalized === 'string'
+        ? stateMaps.byName[normalized.toLowerCase()]
+        : undefined
+      const appointmentStateCode = fromCode?.code || fromName?.code || normalized
+      return appointmentStateCode === selectedState
+    })
+  }, [appointments, selectedState, stateMaps])
+
+  const stateOptions = useMemo(() => {
+    if (statesFromStore.length > 0) {
+      return [...statesFromStore]
+        .filter((state) => state.code && state.name)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((state) => ({ code: state.code, name: state.name }))
+    }
+
+    const fallbackStates = appointments
+      .map((appointment: any) => appointment.state)
+      .filter((state: string) => state)
+    return Array.from(new Set(fallbackStates)).sort().map((state) => ({ code: state, name: state }))
+  }, [appointments, statesFromStore])
+
+  const filterAppointmentsByRange = (range: 'monthly' | 'weekly' | 'yearly' | 'all') => {
+    const now = new Date()
+    now.setHours(0, 0, 0, 0)
+
+    if (range === 'weekly') {
+      const start = new Date(now)
+      start.setDate(now.getDate() - 6)
+      return filteredByState.filter((appointment: any) => {
+        const date = appointmentDate(appointment)
+        if (!date) return false
+        const day = new Date(date)
+        day.setHours(0, 0, 0, 0)
+        return day >= start && day <= now
+      })
+    }
+
+    if (range === 'yearly') {
+      const currentYear = now.getFullYear()
+      return filteredByState.filter((appointment: any) => {
+        const date = appointmentDate(appointment)
+        return date && date.getFullYear() === currentYear
+      })
+    }
+
+    return filteredByState
+  }
+
+  const scopedAppointments = useMemo(
+    () => filterAppointmentsByRange(appointmentRange),
+    [appointmentRange, filteredByState]
+  )
+
+  // Calculate appointment statistics (scoped to range)
+  const totalAppointments = scopedAppointments.length
+  const scheduledAppointments = scopedAppointments.filter((a: any) => a.status === 'scheduled').length
+  const approvalAppointments = scopedAppointments.filter((a: any) => a.status === 'approval').length
+  const rescheduledAppointments = scopedAppointments.filter((a: any) => a.status === 'rescheduled').length
+  const canceledAppointments = scopedAppointments.filter((a: any) => a.status === 'cancelled').length
+  const completedAppointments = scopedAppointments.filter((a: any) => a.status === 'completed').length
+  const pendingAppointments = scopedAppointments.filter((a: any) => a.status === 'pending').length
+  const onHoldAppointments = scopedAppointments.filter((a: any) => a.status === 'on-hold').length
 
   const appointmentAmount = (appointment: any) => {
     const paymentAmount = typeof appointment.payment_id === 'object'
@@ -125,11 +200,22 @@ export default function DashboardPage() {
     return Array.from({ length: 5 }, (_, index) => String(year - (4 - index)))
   }, [])
 
+  const allYears = useMemo(() => {
+    const years = new Set<string>()
+    filteredByState.forEach((appointment: any) => {
+      const date = appointmentDate(appointment)
+      if (!date) return
+      years.add(String(date.getFullYear()))
+    })
+    const list = Array.from(years).sort()
+    return list.length > 0 ? list : yearlyLabels
+  }, [filteredByState, yearlyLabels])
+
   const appointmentChart = useMemo(() => {
     if (appointmentRange === 'monthly') {
-      const data = user?.role_id === 1 && dashboardData?.monthlyAppointments?.length === 12
+      const data = user?.role_id === 1 && dashboardData?.monthlyAppointments?.length === 12 && !selectedState
         ? dashboardData.monthlyAppointments
-        : buildMonthlyAppointments()
+        : buildMonthlyAppointments(filteredByState)
       return { labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], data }
     }
 
@@ -137,7 +223,7 @@ export default function DashboardPage() {
       const today = new Date()
       today.setHours(0, 0, 0, 0)
       const buckets = Array(7).fill(0)
-      appointments.forEach((appointment: any) => {
+      filteredByState.forEach((appointment: any) => {
         const date = appointmentDate(appointment)
         if (!date) return
         const day = new Date(date)
@@ -151,8 +237,20 @@ export default function DashboardPage() {
       return { labels: weeklyLabels, data: buckets }
     }
 
+    if (appointmentRange === 'all') {
+      const buckets = Array(allYears.length).fill(0)
+      filteredByState.forEach((appointment: any) => {
+        const date = appointmentDate(appointment)
+        if (!date) return
+        const year = String(date.getFullYear())
+        const index = allYears.indexOf(year)
+        if (index >= 0) buckets[index] += 1
+      })
+      return { labels: allYears, data: buckets }
+    }
+
     const buckets = Array(yearlyLabels.length).fill(0)
-    appointments.forEach((appointment: any) => {
+    filteredByState.forEach((appointment: any) => {
       const date = appointmentDate(appointment)
       if (!date) return
       const year = String(date.getFullYear())
@@ -160,15 +258,15 @@ export default function DashboardPage() {
       if (index >= 0) buckets[index] += 1
     })
     return { labels: yearlyLabels, data: buckets }
-  }, [appointmentRange, appointments, dashboardData, user, weeklyLabels, yearlyLabels])
+  }, [appointmentRange, filteredByState, dashboardData, user, weeklyLabels, yearlyLabels, allYears, selectedState])
 
   const revenueChart = useMemo(() => {
-    if (revenueRange === 'monthly') {
+    if (appointmentRange === 'monthly') {
       const currentYear = new Date().getFullYear()
-      const data = dashboardData?.revenue?.monthly?.length === 12
+      const data = dashboardData?.revenue?.monthly?.length === 12 && !selectedState
         ? dashboardData.revenue.monthly
-        : buildMonthlyAppointments().map((_, index) => {
-            const monthRevenue = appointments.reduce((sum: number, appointment: any) => {
+        : buildMonthlyAppointments(filteredByState).map((_, index) => {
+            const monthRevenue = filteredByState.reduce((sum: number, appointment: any) => {
               const date = appointmentDate(appointment)
               if (!date || date.getFullYear() !== currentYear || date.getMonth() !== index) return sum
               return sum + appointmentAmount(appointment)
@@ -178,11 +276,11 @@ export default function DashboardPage() {
       return { labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], data }
     }
 
-    if (revenueRange === 'weekly') {
+    if (appointmentRange === 'weekly') {
       const today = new Date()
       today.setHours(0, 0, 0, 0)
       const buckets = Array(7).fill(0)
-      appointments.forEach((appointment: any) => {
+      filteredByState.forEach((appointment: any) => {
         const date = appointmentDate(appointment)
         if (!date) return
         const day = new Date(date)
@@ -196,8 +294,20 @@ export default function DashboardPage() {
       return { labels: weeklyLabels, data: buckets }
     }
 
+    if (appointmentRange === 'all') {
+      const buckets = Array(allYears.length).fill(0)
+      filteredByState.forEach((appointment: any) => {
+        const date = appointmentDate(appointment)
+        if (!date) return
+        const year = String(date.getFullYear())
+        const index = allYears.indexOf(year)
+        if (index >= 0) buckets[index] += appointmentAmount(appointment)
+      })
+      return { labels: allYears, data: buckets }
+    }
+
     const buckets = Array(yearlyLabels.length).fill(0)
-    appointments.forEach((appointment: any) => {
+    filteredByState.forEach((appointment: any) => {
       const date = appointmentDate(appointment)
       if (!date) return
       const year = String(date.getFullYear())
@@ -205,12 +315,36 @@ export default function DashboardPage() {
       if (index >= 0) buckets[index] += appointmentAmount(appointment)
     })
     return { labels: yearlyLabels, data: buckets }
-  }, [revenueRange, appointments, dashboardData, weeklyLabels, yearlyLabels])
+  }, [appointmentRange, filteredByState, dashboardData, weeklyLabels, yearlyLabels, allYears, selectedState])
 
   const revenueTotal = revenueChart.data.reduce((sum: number, value: number) => sum + value, 0)
 
   return (
     <DashboardLayout>
+      {/* Range Filter */}
+      <div className="flex flex-wrap items-center justify-end gap-3 mb-4">
+        <select
+          value={selectedState}
+          onChange={(e) => setSelectedState(e.target.value)}
+          className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
+        >
+          <option value="">All States</option>
+          {stateOptions.map((state) => (
+            <option key={state.code} value={state.code}>{state.name}</option>
+          ))}
+        </select>
+        <select
+          value={appointmentRange}
+          onChange={(e) => setAppointmentRange(e.target.value as 'monthly' | 'weekly' | 'yearly' | 'all')}
+          className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
+        >
+          <option value="monthly">Monthly</option>
+          <option value="weekly">Weekly</option>
+          <option value="yearly">Yearly</option>
+          <option value="all">All</option>
+        </select>
+      </div>
+
       {/* Appointment Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard
@@ -271,6 +405,7 @@ export default function DashboardPage() {
           labels={appointmentChart.labels}
           range={appointmentRange}
           onRangeChange={setAppointmentRange}
+          showRangeSelector={false}
         />
 
         {/* Revenue Chart - Only for Admin */}
@@ -279,8 +414,9 @@ export default function DashboardPage() {
             data={revenueChart.data}
             labels={revenueChart.labels}
             total={revenueTotal}
-            range={revenueRange}
-            onRangeChange={setRevenueRange}
+            range={appointmentRange}
+            onRangeChange={setAppointmentRange}
+            showRangeSelector={false}
           />
         )}
       </div>

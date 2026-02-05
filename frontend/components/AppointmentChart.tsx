@@ -27,11 +27,18 @@ ChartJS.register(
 interface AppointmentChartProps {
   data?: number[]
   labels?: string[]
-  range?: 'monthly' | 'weekly' | 'yearly'
-  onRangeChange?: (range: 'monthly' | 'weekly' | 'yearly') => void
+  range?: 'monthly' | 'weekly' | 'yearly' | 'all'
+  onRangeChange?: (range: 'monthly' | 'weekly' | 'yearly' | 'all') => void
+  showRangeSelector?: boolean
 }
 
-export default function AppointmentChart({ data, labels, range = 'monthly', onRangeChange }: AppointmentChartProps) {
+export default function AppointmentChart({
+  data,
+  labels,
+  range = 'monthly',
+  onRangeChange,
+  showRangeSelector = true
+}: AppointmentChartProps) {
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
   const chartLabels = labels && labels.length > 0 ? labels : months
   
@@ -98,15 +105,18 @@ export default function AppointmentChart({ data, labels, range = 'monthly', onRa
     <div className="card">
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-xl font-semibold text-gray-800">Recent Appointments</h3>
-        <select
-          value={range}
-          onChange={(e) => onRangeChange?.(e.target.value as 'monthly' | 'weekly' | 'yearly')}
-          className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
-        >
-          <option value="monthly">Monthly</option>
-          <option value="weekly">Weekly</option>
-          <option value="yearly">Yearly</option>
-        </select>
+        {showRangeSelector && (
+          <select
+            value={range}
+            onChange={(e) => onRangeChange?.(e.target.value as 'monthly' | 'weekly' | 'yearly' | 'all')}
+            className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
+          >
+            <option value="monthly">Monthly</option>
+            <option value="weekly">Weekly</option>
+            <option value="yearly">Yearly</option>
+            <option value="all">All</option>
+          </select>
+        )}
       </div>
       <div className="h-64">
         <Line data={chartData} options={options} />

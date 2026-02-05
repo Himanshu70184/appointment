@@ -108,7 +108,21 @@ router.get('/active', asyncHandler(async (req, res) => {
   }
 
   if (!template) {
-    return res.status(404).json({ message: 'No active intake form template found' });
+    // Fallback: return any active default template regardless of filters
+    template = await IntakeFormTemplate.findOne({ isActive: true, isDefault: true })
+      .populate('appointmentTypes', 'name')
+      .populate('states', 'name code');
+  }
+
+  if (!template) {
+    template = await IntakeFormTemplate.findOne({ isActive: true })
+      .populate('appointmentTypes', 'name')
+      .populate('states', 'name code')
+      .sort({ createdAt: -1 });
+  }
+
+  if (!template) {
+    return res.status(200).json({ template: null, message: 'No active intake form template found' });
   }
 
   logger.debug('Active template retrieved', { templateId: template._id });
