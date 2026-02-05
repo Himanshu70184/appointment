@@ -26,17 +26,21 @@ ChartJS.register(
 
 interface AppointmentChartProps {
   data?: number[]
+  labels?: string[]
+  range?: 'monthly' | 'weekly' | 'yearly'
+  onRangeChange?: (range: 'monthly' | 'weekly' | 'yearly') => void
 }
 
-export default function AppointmentChart({ data }: AppointmentChartProps) {
+export default function AppointmentChart({ data, labels, range = 'monthly', onRangeChange }: AppointmentChartProps) {
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const chartLabels = labels && labels.length > 0 ? labels : months
   
   const chartData = {
-    labels: months,
+    labels: chartLabels,
     datasets: [
       {
         label: 'Appointments',
-        data: data && data.length === 12 ? data : months.map(() => 0),
+        data: data && data.length === chartLabels.length ? data : chartLabels.map(() => 0),
         borderColor: '#22c55e',
         backgroundColor: 'rgba(34, 197, 94, 0.1)',
         fill: true,
@@ -94,10 +98,14 @@ export default function AppointmentChart({ data }: AppointmentChartProps) {
     <div className="card">
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-xl font-semibold text-gray-800">Recent Appointments</h3>
-        <select className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none">
-          <option>Monthly</option>
-          <option>Weekly</option>
-          <option>Yearly</option>
+        <select
+          value={range}
+          onChange={(e) => onRangeChange?.(e.target.value as 'monthly' | 'weekly' | 'yearly')}
+          className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
+        >
+          <option value="monthly">Monthly</option>
+          <option value="weekly">Weekly</option>
+          <option value="yearly">Yearly</option>
         </select>
       </div>
       <div className="h-64">

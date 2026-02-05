@@ -27,17 +27,21 @@ ChartJS.register(
 interface RevenueChartProps {
   data?: number[]
   total?: number
+  labels?: string[]
+  range?: 'monthly' | 'weekly' | 'yearly'
+  onRangeChange?: (range: 'monthly' | 'weekly' | 'yearly') => void
 }
 
-export default function RevenueChart({ data, total }: RevenueChartProps) {
+export default function RevenueChart({ data, total, labels, range = 'monthly', onRangeChange }: RevenueChartProps) {
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const chartLabels = labels && labels.length > 0 ? labels : months
   
   const chartData = {
-    labels: months,
+    labels: chartLabels,
     datasets: [
       {
         label: 'Revenue ($)',
-        data: data && data.length === 12 ? data : months.map(() => 0),
+        data: data && data.length === chartLabels.length ? data : chartLabels.map(() => 0),
         borderColor: '#22c55e',
         backgroundColor: 'rgba(34, 197, 94, 0.1)',
         fill: true,
@@ -106,10 +110,14 @@ export default function RevenueChart({ data, total }: RevenueChartProps) {
             ${Number(total || 0).toLocaleString()}
           </span>
         </div>
-        <select className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none">
-          <option>Monthly</option>
-          <option>Weekly</option>
-          <option>Yearly</option>
+        <select
+          value={range}
+          onChange={(e) => onRangeChange?.(e.target.value as 'monthly' | 'weekly' | 'yearly')}
+          className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 outline-none"
+        >
+          <option value="monthly">Monthly</option>
+          <option value="weekly">Weekly</option>
+          <option value="yearly">Yearly</option>
         </select>
       </div>
       <div className="h-64">

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useDispatch, useSelector } from 'react-redux'
 import { getAppointment, clearCurrentAppointment } from '@/store/slices/appointmentSlice'
@@ -25,6 +25,16 @@ export default function AppointmentDetailPage() {
   const [emailLogs, setEmailLogs] = useState<Array<{ title: string; message: string; createdAt: string }>>([])
   const [emailLogsLoading, setEmailLogsLoading] = useState(false)
   const [emailLogsError, setEmailLogsError] = useState<string | null>(null)
+  const [isEditingPatient, setIsEditingPatient] = useState(false)
+  const [patientSuccess, setPatientSuccess] = useState<string | null>(null)
+  const dobPickerRef = useRef<HTMLInputElement | null>(null)
+  const [patientForm, setPatientForm] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    dateOfBirth: ''
+  })
 
   useEffect(() => {
     if (appointmentId) {
@@ -44,6 +54,22 @@ export default function AppointmentDetailPage() {
       setNotes(currentAppointment.adminNotes)
     } else if (currentAppointment?.clinicalNotes) {
       setNotes(currentAppointment.clinicalNotes)
+    }
+  }, [currentAppointment])
+
+  useEffect(() => {
+    if (typeof currentAppointment?.patient_id === 'object' && currentAppointment.patient_id) {
+      const patient = currentAppointment.patient_id as any
+      const [nameFirst, ...nameRest] = (patient.name || '').split(' ')
+      setPatientForm({
+        firstName: patient.firstName || nameFirst || '',
+        lastName: patient.lastName || nameRest.join(' ') || '',
+        email: patient.email || '',
+        phone: patient.phone || '',
+        dateOfBirth: patient.dateOfBirth
+          ? formatUsDate(patient.dateOfBirth)
+          : ''
+      })
     }
   }, [currentAppointment])
 
@@ -211,6 +237,105 @@ export default function AppointmentDetailPage() {
     }
   }
 
+  const handleSavePatient = async () => {
+    if (typeof currentAppointment?.patient_id !== 'object' || !currentAppointment.patient_id) {
+      alert('Patient details not available')
+      return
+    }
+
+    const patient = currentAppointment.patient_id as any
+    const patientId = patient._id || patient.id
+
+    if (!patientId) {
+      alert('Patient ID not found')
+      return
+    }
+
+    const payload: any = {}
+    if (patientForm.firstName.trim()) payload.firstName = patientForm.firstName.trim()
+    if (patientForm.lastName.trim()) payload.lastName = patientForm.lastName.trim()
+    if (patientForm.phone.trim()) payload.phone = patientForm.phone.trim()
+    if (patientForm.email.trim()) payload.email = patientForm.email.trim()
+    if (patientForm.dateOfBirth) {
+      const parsedDob = parseUsDate(patientForm.dateOfBirth)
+      if (!parsedDob) {
+        alert('Please enter Date of Birth in MM/DD/YYYY format.')
+        return
+      }
+      payload.dateOfBirth = parsedDob.toISOString()
+    }
+
+    if (payload.firstName || payload.lastName) {
+      payload.name = `${payload.firstName || patient.firstName || ''} ${payload.lastName || patient.lastName || ''}`.trim()
+    }
+
+    try {
+      await api.put(`/api/users/${patientId}`, payload)
+      await dispatch(getAppointment(appointmentId))
+      setIsEditingPatient(false)
+      setPatientSuccess('Patient profile updated successfully.')
+      setTimeout(() => setPatientSuccess(null), 3000)
+      alert('Patient profile updated')
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Failed to update patient profile')
+    }
+  }
+
+  const parseFlexibleDate = (value?: string) => {
+    if (!value) return null
+    const raw = String(value).trim()
+    const parsed = new Date(raw)
+    if (!Number.isNaN(parsed.getTime())) return parsed
+
+    const match = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/)
+    if (!match) return null
+    const part1 = Number(match[1])
+    const part2 = Number(match[2])
+    const year = Number(match[3])
+    const isDayFirst = part1 > 12
+    const month = (isDayFirst ? part2 : part1) - 1
+    const day = isDayFirst ? part1 : part2
+    const date = new Date(year, month, day)
+    return Number.isNaN(date.getTime()) ? null : date
+  }
+
+  const formatUsDate = (value?: string) => {
+    const date = parseFlexibleDate(value)
+    if (!date) return ''
+    return date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
+  }
+
+  const parseUsDate = (value?: string) => {
+    if (!value) return null
+    const match = String(value).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+    if (!match) return null
+    const month = Number(match[1])
+    const day = Number(match[2])
+    const year = Number(match[3])
+    const date = new Date(year, month - 1, day)
+    if (Number.isNaN(date.getTime())) return null
+    return date
+  }
+
+  const formatIsoToInput = (value?: string) => {
+    const date = parseFlexibleDate(value)
+    if (!date) return ''
+    const year = date.getFullYear()
+    const month = `${date.getMonth() + 1}`.padStart(2, '0')
+    const day = `${date.getDate()}`.padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
+  const openDobPicker = () => {
+    const picker = dobPickerRef.current as HTMLInputElement & { showPicker?: () => void }
+    if (picker?.showPicker) {
+      picker.showPicker()
+    } else {
+      picker?.focus()
+      picker?.click()
+    }
+  }
+
   return (
     <DashboardLayout>
       <div className="max-w-7xl mx-auto">
@@ -316,52 +441,152 @@ export default function AppointmentDetailPage() {
                 {/* Patient Information */}
                 <div className="card">
                   <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-lg font-semibold">Patient Information</h2>
-                    <button className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700">
-                      Edit Profile
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <h2 className="text-lg font-semibold">Patient Information</h2>
+                      {isEditingPatient && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+                          Editing
+                        </span>
+                      )}
+                    </div>
+                    {!isEditingPatient ? (
+                      <button
+                        onClick={() => setIsEditingPatient(true)}
+                        className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700"
+                      >
+                        Edit Profile
+                      </button>
+                    ) : (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setIsEditingPatient(false)}
+                          className="px-3 py-1 border border-gray-300 text-sm rounded hover:bg-gray-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={handleSavePatient}
+                          className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    )}
                   </div>
+
+                  {patientSuccess && (
+                    <div className="mb-3 rounded border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+                      {patientSuccess}
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-2 gap-4 mb-4">
                     <div>
                       <label className="text-sm text-gray-600">First Name</label>
-                      <p className="font-medium">
-                        {typeof currentAppointment.patient_id === 'object' 
-                          ? currentAppointment.patient_id?.name?.split(' ')[0] || 'N/A'
-                          : 'N/A'}
-                      </p>
+                      {isEditingPatient ? (
+                        <input
+                          type="text"
+                          value={patientForm.firstName}
+                          onChange={(e) => setPatientForm({ ...patientForm, firstName: e.target.value })}
+                          className="input w-full"
+                        />
+                      ) : (
+                        <p className="font-medium">
+                          {typeof currentAppointment.patient_id === 'object'
+                            ? currentAppointment.patient_id?.firstName || currentAppointment.patient_id?.name?.split(' ')[0] || 'N/A'
+                            : 'N/A'}
+                        </p>
+                      )}
                     </div>
                     <div>
                       <label className="text-sm text-gray-600">Last Name</label>
-                      <p className="font-medium">
-                        {typeof currentAppointment.patient_id === 'object' 
-                          ? currentAppointment.patient_id?.name?.split(' ').slice(1).join(' ') || 'N/A'
-                          : 'N/A'}
-                      </p>
+                      {isEditingPatient ? (
+                        <input
+                          type="text"
+                          value={patientForm.lastName}
+                          onChange={(e) => setPatientForm({ ...patientForm, lastName: e.target.value })}
+                          className="input w-full"
+                        />
+                      ) : (
+                        <p className="font-medium">
+                          {typeof currentAppointment.patient_id === 'object'
+                            ? currentAppointment.patient_id?.lastName || currentAppointment.patient_id?.name?.split(' ').slice(1).join(' ') || 'N/A'
+                            : 'N/A'}
+                        </p>
+                      )}
                     </div>
                     <div>
                       <label className="text-sm text-gray-600">Date of Birth</label>
-                      <p className="font-medium">
-                        {typeof currentAppointment.patient_id === 'object' && currentAppointment.patient_id?.dateOfBirth
-                          ? new Date(currentAppointment.patient_id.dateOfBirth).toLocaleDateString()
-                          : 'N/A'}
-                      </p>
+                      {isEditingPatient ? (
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={patientForm.dateOfBirth}
+                            onChange={(e) => setPatientForm({ ...patientForm, dateOfBirth: e.target.value })}
+                            placeholder="MM/DD/YYYY"
+                            className="input w-full pr-10"
+                          />
+                          <button
+                            type="button"
+                            onClick={openDobPicker}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                            aria-label="Open date picker"
+                          >
+                            📅
+                          </button>
+                          <input
+                            ref={dobPickerRef}
+                            type="date"
+                            value={formatIsoToInput(patientForm.dateOfBirth)}
+                            onChange={(e) => {
+                              const picked = formatUsDate(e.target.value)
+                              setPatientForm({ ...patientForm, dateOfBirth: picked })
+                            }}
+                            className="absolute inset-0 opacity-0 pointer-events-none"
+                            tabIndex={-1}
+                          />
+                        </div>
+                      ) : (
+                        <p className="font-medium">
+                          {typeof currentAppointment.patient_id === 'object' && currentAppointment.patient_id?.dateOfBirth
+                            ? formatUsDate(currentAppointment.patient_id.dateOfBirth)
+                            : 'N/A'}
+                        </p>
+                      )}
                     </div>
                     <div>
                       <label className="text-sm text-gray-600">Email Address</label>
-                      <p className="font-medium">
-                        {typeof currentAppointment.patient_id === 'object' 
-                          ? currentAppointment.patient_id?.email || 'N/A'
-                          : 'N/A'}
-                      </p>
+                      {isEditingPatient ? (
+                        <input
+                          type="email"
+                          value={patientForm.email}
+                          onChange={(e) => setPatientForm({ ...patientForm, email: e.target.value })}
+                          className="input w-full"
+                        />
+                      ) : (
+                        <p className="font-medium">
+                          {typeof currentAppointment.patient_id === 'object'
+                            ? currentAppointment.patient_id?.email || 'N/A'
+                            : 'N/A'}
+                        </p>
+                      )}
                     </div>
                     <div>
                       <label className="text-sm text-gray-600">Phone Number</label>
-                      <p className="font-medium">
-                        {typeof currentAppointment.patient_id === 'object' 
-                          ? currentAppointment.patient_id?.phone || 'N/A'
-                          : 'N/A'}
-                      </p>
+                      {isEditingPatient ? (
+                        <input
+                          type="text"
+                          value={patientForm.phone}
+                          onChange={(e) => setPatientForm({ ...patientForm, phone: e.target.value })}
+                          className="input w-full"
+                        />
+                      ) : (
+                        <p className="font-medium">
+                          {typeof currentAppointment.patient_id === 'object'
+                            ? currentAppointment.patient_id?.phone || 'N/A'
+                            : 'N/A'}
+                        </p>
+                      )}
                     </div>
                   </div>
 

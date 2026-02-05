@@ -126,7 +126,7 @@ export default function PatientsPage() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-7xl">
+      <div className="max-w-full">
         {/* Header */}
         <div className="flex justify-between items-center mb-6">
           <div>
