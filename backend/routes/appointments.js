@@ -15,6 +15,7 @@ const { auth, authorize } = require('../middleware/auth');
 const { processPayment } = require('../utils/payment');
 const { sendAppointmentNotification, sendTemplateEmail } = require('../utils/email');
 const { paginate, parseSortParam } = require('../utils/pagination');
+const { getStateCooldownBlock } = require('../utils/bookingCooldown');
 
 const router = express.Router();
 
@@ -233,6 +234,8 @@ router.post('/admin-book', [
       notes
     } = req.body;
 
+    const normalizedEmail = email.trim().toLowerCase();
+
     // Verify patient exists
     const patient = await User.findById(patient_id);
     if (!patient || patient.role_id !== 3) {
@@ -311,7 +314,9 @@ router.post('/admin-book-patient', [
   body('cardType').notEmpty().withMessage('Appointment type is required'),
   body('scheduledDate').isISO8601().withMessage('Scheduled date is required'),
   body('scheduledTime').notEmpty().withMessage('Scheduled time is required'),
-  body('slotLockToken').notEmpty().withMessage('Slot lock token is required')
+  body('slotLockToken').notEmpty().withMessage('Slot lock token is required'),
+  body('overrideCooldown').optional().isBoolean().toBoolean(),
+  body('overrideReason').optional({ checkFalsy: true }).isString().trim().isLength({ min: 3 })
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -334,15 +339,36 @@ router.post('/admin-book-patient', [
       isMinor,
       guardianName,
       guardianPhone,
-      guardianAddress
+      guardianAddress,
+      overrideCooldown,
+      overrideReason
     } = req.body;
 
+    const normalizedEmail = email.trim().toLowerCase();
+
     // Check if user already exists
-    let user = await User.findOne({ email: email.toLowerCase() });
+    let user = await User.findOne({ email: normalizedEmail });
     let isNewUser = false;
 
     if (!user) {
       isNewUser = true;
+    } else if (user.role_id !== 3) {
+      return res.status(400).json({ message: 'Email already taken. Use another email.' });
+    } else {
+      const cooldownBlock = await getStateCooldownBlock({
+        patientId: user._id,
+        stateCode: state
+      });
+      if (cooldownBlock && !overrideCooldown) {
+        return res.status(400).json({
+          message: `Patient must wait ${cooldownBlock.cooldownMonths} months after a completed appointment in ${cooldownBlock.stateName}. Next eligible date: ${cooldownBlock.eligibleDateFormatted}.`
+        });
+      }
+      if (cooldownBlock && overrideCooldown) {
+        if (!overrideReason || overrideReason.trim().length < 3) {
+          return res.status(400).json({ message: 'Override reason is required' });
+        }
+      }
     }
 
     // Validate guardian info for minors
@@ -410,7 +436,7 @@ router.post('/admin-book-patient', [
         name: `${firstName} ${lastName}`,
         firstName,
         lastName,
-        email: email.toLowerCase(),
+        email: normalizedEmail,
         phone,
         dateOfBirth,
         password,
@@ -442,6 +468,9 @@ router.post('/admin-book-patient', [
       isMinor,
       paymentCompleted: true, // Mark as completed (no payment required)
       intakeSubmitted: false,
+      adminNotes: overrideCooldown && overrideReason
+        ? `Cooldown override: ${overrideReason}`
+        : undefined,
       bookedBy: req.user._id // Track who created this booking
     });
 
@@ -896,6 +925,9 @@ router.put('/:id/status', [
     }
 
     appointment.status = req.body.status;
+    if (req.body.status === 'completed') {
+      appointment.completedAt = new Date();
+    }
     await appointment.save();
 
     // Create notification
@@ -1086,6 +1118,7 @@ router.put('/:id/complete', auth, authorize(1, 2), async (req, res) => {
     }
 
     appointment.status = 'completed';
+    appointment.completedAt = new Date();
     await appointment.save();
 
     // Create notification

@@ -34,6 +34,12 @@ const stateSchema = new mongoose.Schema({
   notes: {
     type: String
   },
+  cooldownMonths: {
+    type: Number,
+    default: 0,
+    min: 0,
+    max: 120
+  },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'

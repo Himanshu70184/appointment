@@ -95,7 +95,8 @@ router.post('/', [
   authorize('admin'),
   body('code').isLength({ min: 2, max: 2 }).withMessage('Code must be 2 characters'),
   body('name').trim().notEmpty().withMessage('State name is required'),
-  body('region').isIn(['Northeast', 'Midwest', 'South', 'West', 'Territory']).optional()
+  body('region').isIn(['Northeast', 'Midwest', 'South', 'West', 'Territory']).optional(),
+  body('cooldownMonths').optional().isInt({ min: 0, max: 120 }).withMessage('Cooldown months must be between 0 and 120')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -103,7 +104,7 @@ router.post('/', [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { code, name, region, notes } = req.body;
+    const { code, name, region, notes, cooldownMonths } = req.body;
     const normalizedCode = code.toUpperCase();
 
     // Check if state already exists
@@ -121,6 +122,7 @@ router.post('/', [
       abbreviation: normalizedCode,
       region,
       notes,
+      cooldownMonths: typeof cooldownMonths === 'number' ? cooldownMonths : 0,
       createdBy: req.user._id,
       updatedBy: req.user._id
     });
@@ -149,7 +151,8 @@ router.put('/:id', [
   authorize('admin'),
   body('name').trim().optional(),
   body('region').isIn(['Northeast', 'Midwest', 'South', 'West', 'Territory']).optional(),
-  body('isActive').isBoolean().optional()
+  body('isActive').isBoolean().optional(),
+  body('cooldownMonths').optional().isInt({ min: 0, max: 120 }).withMessage('Cooldown months must be between 0 and 120')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -168,6 +171,7 @@ router.put('/:id', [
     if (req.body.region) state.region = req.body.region;
     if (req.body.isActive !== undefined) state.isActive = req.body.isActive;
     if (req.body.notes) state.notes = req.body.notes;
+    if (req.body.cooldownMonths !== undefined) state.cooldownMonths = req.body.cooldownMonths;
 
     state.updatedBy = req.user._id;
     state.updatedAt = Date.now();
@@ -312,7 +316,8 @@ router.get('/export/csv', [auth, authorize('admin')], asyncHandler(async (req, r
     abbreviation: state.abbreviation,
     region: state.region,
     isActive: state.isActive,
-    notes: state.notes || ''
+    notes: state.notes || '',
+    cooldownMonths: state.cooldownMonths || 0
   }));
 
   const csv = toCSV(csvData);
@@ -342,7 +347,8 @@ router.post('/import/csv', [auth, authorize('admin'), upload.single('file')], as
       enum: ['Northeast', 'Midwest', 'South', 'West', 'Territory'] 
     },
     isActive: { type: 'boolean' },
-    notes: { type: 'string' }
+    notes: { type: 'string' },
+    cooldownMonths: { type: 'number' }
   };
 
   // Transformer function to convert CSV data to model format
@@ -352,7 +358,8 @@ router.post('/import/csv', [auth, authorize('admin'), upload.single('file')], as
     abbreviation: row.abbreviation.toUpperCase(),
     region: row.region,
     isActive: row.isActive === 'true' || row.isActive === '1' || row.isActive === true,
-    notes: row.notes || ''
+    notes: row.notes || '',
+    cooldownMonths: row.cooldownMonths ? Number(row.cooldownMonths) : 0
   });
 
   const result = await processCSVUpload({

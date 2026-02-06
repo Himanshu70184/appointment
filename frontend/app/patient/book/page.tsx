@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -23,7 +23,7 @@ const bookingSchema = z.object({
   lastName: z.string().min(2, 'Last name is required'),
   email: z.string().email('Valid email is required'),
   phone: z.string().regex(/^\d{10}$/, 'Enter 10-digit phone number'),
-  dateOfBirth: z.string().min(1, 'Date of birth is required'),
+  dateOfBirth: z.string().regex(/^(0[1-9]|1[0-2])\/(0[1-9]|[12]\d|3[01])\/\d{4}$/, 'Use MM/DD/YYYY format'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
   confirmPassword: z.string(),
   guardianName: z.string().optional(),
@@ -53,7 +53,8 @@ export default function PatientBookingPage() {
   const [step, setStep] = useState(1)
   const [selectedState, setSelectedState] = useState('')
   const [selectedCardType, setSelectedCardType] = useState('')
-  const [selectedDate, setSelectedDate] = useState('')
+  const [selectedDateDisplay, setSelectedDateDisplay] = useState('')
+  const [selectedDateISO, setSelectedDateISO] = useState('')
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
   const [slotLockToken, setSlotLockToken] = useState<string | null>(null)
   const [appointmentTypes, setAppointmentTypes] = useState<any[]>([])
@@ -62,10 +63,15 @@ export default function PatientBookingPage() {
   const [couponCode, setCouponCode] = useState('')
   const [couponData, setCouponData] = useState<any>(null)
   const [finalAmount, setFinalAmount] = useState(0)
+  const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null)
+
+  const appointmentDatePickerRef = useRef<HTMLInputElement | null>(null)
+  const dobPickerRef = useRef<HTMLInputElement | null>(null)
 
   const {
     register,
     handleSubmit,
+    setValue,
     watch,
     formState: { errors },
   } = useForm<BookingFormData>({
@@ -87,7 +93,7 @@ export default function PatientBookingPage() {
     setSelectedSlot(null)
     setSlotsRequested(false)
     setSlotLockToken(null)
-  }, [selectedState, selectedCardType, selectedDate])
+  }, [selectedState, selectedCardType, selectedDateISO])
 
   useEffect(() => {
     if (step !== 2 || !slotLockToken) return
@@ -97,7 +103,7 @@ export default function PatientBookingPage() {
         await api.post('/api/patient-portal/refresh-slot-lock', { lockToken: slotLockToken })
       } catch (error: any) {
         const message = error.response?.data?.message || 'Your slot reservation expired. Please choose another time.'
-        alert(message)
+        showToast('error', formatEligibleDateMessage(message))
         setStep(1)
         setSlotLockToken(null)
       }
@@ -107,9 +113,41 @@ export default function PatientBookingPage() {
     return () => clearInterval(intervalId)
   }, [step, slotLockToken])
 
+  const parseMMDDYYYY = (value?: string) => {
+    if (!value) return null
+    const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+    if (!match) return null
+    const month = Number(match[1])
+    const day = Number(match[2])
+    const year = Number(match[3])
+    const date = new Date(year, month - 1, day)
+    if (date.getFullYear() !== year || date.getMonth() + 1 !== month || date.getDate() !== day) {
+      return null
+    }
+    return date
+  }
+
+  const formatISOToMMDDYYYY = (value: string) => {
+    if (!value) return ''
+    const parts = value.split('T')[0].split('-')
+    if (parts.length !== 3) return ''
+    return `${parts[1]}/${parts[2]}/${parts[0]}`
+  }
+
+  const openNativePicker = (ref: { current: HTMLInputElement | null }) => {
+    if (!ref.current) return
+    const element = ref.current as HTMLInputElement & { showPicker?: () => void }
+    if (typeof element.showPicker === 'function') {
+      element.showPicker()
+    } else {
+      element.focus()
+    }
+  }
+
   useEffect(() => {
     if (dateOfBirth) {
-      const birthDate = new Date(dateOfBirth)
+      const birthDate = parseMMDDYYYY(dateOfBirth)
+      if (!birthDate) return
       const today = new Date()
       const age = today.getFullYear() - birthDate.getFullYear()
       const monthDiff = today.getMonth() - birthDate.getMonth()
@@ -117,6 +155,40 @@ export default function PatientBookingPage() {
       setShowMinorFields(isMinor)
     }
   }, [dateOfBirth])
+
+  useEffect(() => {
+    if (error) {
+      showToast('error', formatEligibleDateMessage(error))
+      dispatch(clearError())
+    }
+  }, [error, dispatch])
+
+  useEffect(() => {
+    if (success) {
+      showToast('success', success)
+      dispatch(clearSuccess())
+    }
+  }, [success, dispatch])
+
+  const formatDateMMDDYYYY = (value: Date) => {
+    const month = String(value.getMonth() + 1).padStart(2, '0')
+    const day = String(value.getDate()).padStart(2, '0')
+    const year = value.getFullYear()
+    return `${month}/${day}/${year}`
+  }
+
+  const formatEligibleDateMessage = (message: string) => {
+    const match = message.match(/Next eligible date:\s*([0-9/\-.]+)/i)
+    if (!match) return message
+    const parsed = new Date(match[1])
+    if (Number.isNaN(parsed.getTime())) return message
+    return message.replace(match[1], formatDateMMDDYYYY(parsed))
+  }
+
+  const showToast = (type: 'success' | 'error' | 'info', message: string) => {
+    setToast({ type, message })
+    window.setTimeout(() => setToast(null), 4000)
+  }
 
   const fetchAppointmentTypes = async () => {
     try {
@@ -130,15 +202,15 @@ export default function PatientBookingPage() {
   }
 
   const handleSlotSelection = () => {
-    if (!selectedState || !selectedDate || !selectedCardType) {
-      alert('Please select state, card type, and date')
+    if (!selectedState || !selectedDateISO || !selectedCardType) {
+      showToast('error', 'Please select state, card type, and date')
       return
     }
     setSlotsRequested(true)
     dispatch(
       getAvailableSlots({
         state: selectedState,
-        date: selectedDate,
+        date: selectedDateISO,
         cardType: selectedCardType,
       })
     )
@@ -146,7 +218,7 @@ export default function PatientBookingPage() {
 
   const handleSlotConfirm = async () => {
     if (!selectedSlot) {
-      alert('Please select a time slot')
+      showToast('error', 'Please select a time slot')
       return
     }
 
@@ -154,7 +226,7 @@ export default function PatientBookingPage() {
       const response = await api.post('/api/patient-portal/lock-slot', {
         state: selectedState,
         cardType: selectedCardType,
-        scheduledDate: selectedDate,
+        scheduledDate: selectedDateISO,
         scheduledTime: selectedSlot,
       })
 
@@ -162,7 +234,7 @@ export default function PatientBookingPage() {
       setStep(2)
     } catch (error: any) {
       const message = error.response?.data?.message || 'This slot is temporarily locked. Please choose another time.'
-      alert(message)
+      showToast('error', formatEligibleDateMessage(message))
     }
   }
 
@@ -203,9 +275,9 @@ export default function PatientBookingPage() {
       ).unwrap()
       setCouponData(result)
       setFinalAmount(result.finalAmount)
-      alert(`Coupon applied! You save $${result.discountAmount.toFixed(2)}`)
+      showToast('success', `Coupon applied! You save $${result.discountAmount.toFixed(2)}`)
     } catch (err: any) {
-      alert(err.message || 'Invalid coupon code')
+      showToast('error', err.message || 'Invalid coupon code')
       setCouponData(null)
       setFinalAmount(appointmentType.price)
     }
@@ -215,7 +287,7 @@ export default function PatientBookingPage() {
     const appointmentType = appointmentTypes.find((c) => c._id === selectedCardType)
     if (!appointmentType || !selectedSlot) return
     if (!slotLockToken) {
-      alert('Your slot reservation expired. Please choose a time slot again.')
+      showToast('error', 'Your slot reservation expired. Please choose a time slot again.')
       setStep(1)
       return
     }
@@ -225,11 +297,11 @@ export default function PatientBookingPage() {
       lastName: data.lastName,
       email: data.email,
       phone: data.phone,
-      dateOfBirth: data.dateOfBirth,
+      dateOfBirth: parseMMDDYYYY(data.dateOfBirth)?.toISOString().split('T')[0] || '',
       password: data.password,
       state: selectedState,
       cardType: selectedCardType,
-      scheduledDate: selectedDate,
+      scheduledDate: selectedDateISO,
       scheduledTime: selectedSlot,
       slotLockToken,
       couponCode: couponData ? couponCode : undefined,
@@ -261,19 +333,19 @@ export default function PatientBookingPage() {
       }
     } catch (err: any) {
       if (err.slotConflict) {
-        alert(err.message)
+        showToast('error', formatEligibleDateMessage(err.message))
         setStep(1)
         dispatch(
           getAvailableSlots({
             state: selectedState,
-            date: selectedDate,
+            date: selectedDateISO,
             cardType: selectedCardType,
           })
         )
       } else if (err.paymentFailed) {
-        alert('Payment failed. Please check your card details and try again.')
+        showToast('error', 'Payment failed. Please check your card details and try again.')
       } else {
-        alert(err.message || 'Booking failed')
+        showToast('error', formatEligibleDateMessage(err.message || 'Booking failed'))
       }
     }
   }
@@ -293,7 +365,9 @@ export default function PatientBookingPage() {
                 className="input w-full"
               >
                 <option value="">Choose a state...</option>
-                {states.map((state: any) => (
+                {[...states]
+                  .sort((a: any, b: any) => a.name.localeCompare(b.name))
+                  .map((state: any) => (
                   <option key={state.code} value={state.code}>
                     {state.name}
                   </option>
@@ -335,18 +409,51 @@ export default function PatientBookingPage() {
 
             <div>
               <label className="block text-sm font-medium mb-2">Select Date</label>
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                min={new Date().toISOString().split('T')[0]}
-                className="input w-full"
-              />
+              <div className="relative">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="MM/DD/YYYY"
+                  maxLength={10}
+                  value={selectedDateDisplay}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    setSelectedDateDisplay(value)
+                    const parsed = parseMMDDYYYY(value)
+                    setSelectedDateISO(parsed ? parsed.toISOString().split('T')[0] : '')
+                    setSelectedSlot(null)
+                  }}
+                  className="input w-full pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => openNativePicker(appointmentDatePickerRef)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500"
+                  aria-label="Open calendar"
+                >
+                  📅
+                </button>
+                <input
+                  ref={appointmentDatePickerRef}
+                  type="date"
+                  value={selectedDateISO}
+                  onChange={(e) => {
+                    const isoValue = e.target.value
+                    setSelectedDateISO(isoValue)
+                    setSelectedDateDisplay(formatISOToMMDDYYYY(isoValue))
+                    setSelectedSlot(null)
+                  }}
+                  min={new Date().toISOString().split('T')[0]}
+                  className="sr-only"
+                  tabIndex={-1}
+                  aria-hidden="true"
+                />
+              </div>
             </div>
 
             <button
               onClick={handleSlotSelection}
-              disabled={!selectedState || !selectedCardType || !selectedDate}
+              disabled={!selectedState || !selectedCardType || !selectedDateISO}
               className="btn-primary w-full"
             >
               Find Available Times
@@ -359,9 +466,9 @@ export default function PatientBookingPage() {
         <div className="card">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xl font-semibold">Select Time</h3>
-            {selectedDate && (
+            {selectedDateISO && (
               <span className="text-sm text-gray-600">
-                {new Date(selectedDate).toLocaleDateString()}
+                {formatISOToMMDDYYYY(selectedDateISO)}
               </span>
             )}
           </div>
@@ -438,7 +545,7 @@ export default function PatientBookingPage() {
           <div className="flex justify-between">
             <span className="text-gray-600">Appointment Date:</span>
             <span className="font-semibold">
-              {selectedDate ? new Date(selectedDate).toLocaleDateString('en-US') : '—'}
+              {selectedDateISO ? formatISOToMMDDYYYY(selectedDateISO) : '—'}
             </span>
           </div>
           <div className="flex justify-between">
@@ -488,7 +595,37 @@ export default function PatientBookingPage() {
 
           <div>
             <label className="block text-sm font-medium mb-2">Date of Birth *</label>
-            <input type="date" {...register('dateOfBirth')} className="input w-full" />
+            <div className="relative">
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="MM/DD/YYYY"
+                maxLength={10}
+                {...register('dateOfBirth')}
+                className="input w-full pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => openNativePicker(dobPickerRef)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500"
+                aria-label="Open date of birth calendar"
+              >
+                📅
+              </button>
+              <input
+                ref={dobPickerRef}
+                type="date"
+                value={parseMMDDYYYY(dateOfBirth)?.toISOString().split('T')[0] || ''}
+                onChange={(e) => {
+                  const isoValue = e.target.value
+                  const formatted = formatISOToMMDDYYYY(isoValue)
+                  setValue('dateOfBirth', formatted, { shouldValidate: true })
+                }}
+                className="sr-only"
+                tabIndex={-1}
+                aria-hidden="true"
+              />
+            </div>
             {errors.dateOfBirth && (
               <p className="text-red-500 text-sm mt-1">{errors.dateOfBirth.message}</p>
             )}
@@ -644,10 +781,6 @@ export default function PatientBookingPage() {
         </div>
       </div>
 
-      {error && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-800">{error}</div>
-      )}
-
       <div className="flex gap-3">
         <button type="button" onClick={() => setStep(1)} className="btn-secondary flex-1">
           Back
@@ -661,6 +794,24 @@ export default function PatientBookingPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
+      {toast && (
+        <div className="fixed top-5 right-5 z-50 max-w-sm">
+          <div
+            className={`rounded-lg shadow-lg px-4 py-3 text-sm font-medium border flex items-start gap-2 ${
+              toast.type === 'success'
+                ? 'bg-green-50 text-green-800 border-green-200'
+                : toast.type === 'error'
+                ? 'bg-red-50 text-red-800 border-red-200'
+                : 'bg-blue-50 text-blue-800 border-blue-200'
+            }`}
+          >
+            <span>
+              {toast.type === 'success' ? '✓' : toast.type === 'error' ? '✕' : 'ℹ'}
+            </span>
+            <span>{toast.message}</span>
+          </div>
+        </div>
+      )}
       <div className="max-w-4xl mx-auto px-4">
         <h1 className="text-3xl font-bold mb-8 text-center">Book Your Appointment</h1>
 

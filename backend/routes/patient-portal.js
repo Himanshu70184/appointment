@@ -12,6 +12,7 @@ const SlotLock = require('../models/SlotLock');
 const { auth, authorize } = require('../middleware/auth');
 const { processPayment } = require('../utils/payment');
 const { sendTemplateEmail, sendWelcomeEmail } = require('../utils/email');
+const { getStateCooldownBlock } = require('../utils/bookingCooldown');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -585,12 +586,26 @@ router.post('/book-appointment', [
       guardianAddress
     } = req.body;
 
+    const normalizedEmail = email.trim().toLowerCase();
+
     // Check if user already exists (guest checkout allowed)
-    let user = await User.findOne({ email: email.toLowerCase() });
+    let user = await User.findOne({ email: normalizedEmail });
     let isNewUser = false;
     
     if (!user) {
       isNewUser = true;
+    } else if (user.role_id !== 3) {
+      return res.status(400).json({ message: 'Email already taken. Use another email.' });
+    } else {
+      const cooldownBlock = await getStateCooldownBlock({
+        patientId: user._id,
+        stateCode: state
+      });
+      if (cooldownBlock) {
+        return res.status(400).json({
+          message: `You must wait ${cooldownBlock.cooldownMonths} months after a completed appointment in ${cooldownBlock.stateName}. Next eligible date: ${cooldownBlock.eligibleDateFormatted}.`
+        });
+      }
     }
 
     // Check if patient is a minor (under 18)
@@ -691,7 +706,7 @@ router.post('/book-appointment', [
         name: `${firstName} ${lastName}`,
         firstName,
         lastName,
-        email: email.toLowerCase(),
+        email: normalizedEmail,
         phone,
         dateOfBirth,
         password,

@@ -61,6 +61,7 @@ export interface State {
   region: 'Northeast' | 'Midwest' | 'South' | 'West' | 'Territory'
   isActive: boolean
   notes?: string
+  cooldownMonths?: number
 }
 
 export interface Staff {

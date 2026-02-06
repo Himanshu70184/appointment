@@ -62,6 +62,9 @@ const appointmentSchema = new mongoose.Schema({
   paymentCompletedAt: {
     type: Date
   },
+  completedAt: {
+    type: Date
+  },
   documents: [{
     type: {
       type: String,

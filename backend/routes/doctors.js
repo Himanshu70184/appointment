@@ -116,17 +116,18 @@ router.post('/', [
     }
 
     const { name, email, phone, password, consultationFee, licenseNumber, specialties, states } = req.body;
+    const normalizedEmail = email.trim().toLowerCase();
 
     // Check if user with this email already exists
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
-      return res.status(400).json({ message: 'User with this email already exists' });
+      return res.status(400).json({ message: 'Email already taken. Use another email.' });
     }
 
     // Create user account for doctor
     const user = new User({
       name,
-      email,
+      email: normalizedEmail,
       phone,
       password, // Will be hashed by User model pre-save hook
       role_id: 2, // Doctor role
@@ -199,6 +200,18 @@ router.put('/:id', [
 
     if (req.body.email && req.user.role_id !== 1) {
       return res.status(403).json({ message: 'Only admin can change doctor email' });
+    }
+
+    if (req.body.email && req.user.role_id === 1) {
+      const normalizedEmail = req.body.email.trim().toLowerCase();
+      const existingUser = await User.findOne({
+        email: normalizedEmail,
+        _id: { $ne: doctor.user_id }
+      });
+      if (existingUser) {
+        return res.status(400).json({ message: 'Email already taken. Use another email.' });
+      }
+      req.body.email = normalizedEmail;
     }
 
     // Update user fields if provided

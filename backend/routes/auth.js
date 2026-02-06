@@ -32,17 +32,18 @@ router.post('/register', [
     }
 
     const { name, email, phone, state, appointmentType } = req.body;
+    const normalizedEmail = email.trim().toLowerCase();
 
     // Check if user already exists
-    let user = await User.findOne({ email });
+    let user = await User.findOne({ email: normalizedEmail });
     if (user) {
-      return res.status(400).json({ message: 'User already exists with this email' });
+      return res.status(400).json({ message: 'Email already taken. Use another email.' });
     }
 
     // Create new user/lead
     user = new User({
       name,
-      email,
+      email: normalizedEmail,
       phone,
       state,
       role_id: 3, // Patient

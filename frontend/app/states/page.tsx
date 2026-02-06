@@ -22,6 +22,7 @@ interface State {
   region: string;
   isActive: boolean;
   notes?: string;
+  cooldownMonths?: number;
 }
 
 export default function StatesPage() {
@@ -148,6 +149,7 @@ export default function StatesPage() {
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">S/No</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">State Name</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Cooldown (Months)</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Actions</th>
                     </tr>
                   </thead>
@@ -159,6 +161,9 @@ export default function StatesPage() {
                         </td>
                         <td className="px-6 py-4">
                           <p className="font-medium text-gray-900">{state.name}</p>
+                        </td>
+                        <td className="px-6 py-4 text-gray-900">
+                          {state.cooldownMonths ?? 0}
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex gap-2">

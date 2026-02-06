@@ -9,6 +9,11 @@
 - UI walkthrough
 - Troubleshooting
 
+→ Read: **[COOLDOWN_FEATURE.md](./COOLDOWN_FEATURE.md)**
+- Cooldown rules and configuration
+- Admin override behavior
+- Booking enforcement details
+
 ### 👨‍💻 I'm a Developer
 → Read: **[IMPLEMENTATION_SUMMARY.md](./IMPLEMENTATION_SUMMARY.md)**
 - Technical overview
@@ -69,6 +74,7 @@ appointment/
 │   └── STATES_FEATURE_README.md        ← Complete docs
 │
 ├── QUICK_START_STATES.md               ← User guide
+├── COOLDOWN_FEATURE.md                 ← Cooldown feature
 ├── IMPLEMENTATION_SUMMARY.md           ← Technical overview
 ├── ARCHITECTURE_DIAGRAM.md             ← Architecture
 └── COMPLETION_SUMMARY.md               ← What was delivered

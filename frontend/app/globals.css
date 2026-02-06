@@ -8,10 +8,17 @@
   --background-end-rgb: 255, 255, 255;
 }
 
-body {
+html, body {
   color: rgb(var(--foreground-rgb));
   background: rgb(var(--background-start-rgb));
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+}
+
+input,
+select,
+textarea,
+button {
+  font-family: inherit;
 }
 
 @layer components {

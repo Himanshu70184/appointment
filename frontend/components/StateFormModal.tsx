@@ -10,6 +10,7 @@ interface State {
   region: string;
   isActive: boolean;
   notes?: string;
+  cooldownMonths?: number;
 }
 
 interface StateFormModalProps {
@@ -25,7 +26,8 @@ export default function StateFormModal({ state, onClose }: StateFormModalProps) 
 
   const [formData, setFormData] = useState({
     code: '',
-    name: ''
+    name: '',
+    cooldownMonths: 0
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -34,7 +36,8 @@ export default function StateFormModal({ state, onClose }: StateFormModalProps) 
     if (state) {
       setFormData({
         code: state.code,
-        name: state.name
+        name: state.name,
+        cooldownMonths: state.cooldownMonths ?? 0
       });
     }
   }, [state]);
@@ -50,6 +53,10 @@ export default function StateFormModal({ state, onClose }: StateFormModalProps) 
 
     if (!formData.name.trim()) {
       newErrors.name = 'State name is required';
+    }
+
+    if (formData.cooldownMonths < 0) {
+      newErrors.cooldownMonths = 'Cooldown must be 0 or more months';
     }
 
     setErrors(newErrors);
@@ -68,14 +75,16 @@ export default function StateFormModal({ state, onClose }: StateFormModalProps) 
       await dispatch(updateState({
         id: state._id,
         data: {
-          name: formData.name
+          name: formData.name,
+          cooldownMonths: formData.cooldownMonths
         }
       }));
     } else {
       // Create new state
       await dispatch(createState({
         code: formData.code.toUpperCase(),
-        name: formData.name
+        name: formData.name,
+        cooldownMonths: formData.cooldownMonths
       }));
     }
 
@@ -84,9 +93,12 @@ export default function StateFormModal({ state, onClose }: StateFormModalProps) 
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
+    const normalizedValue = name === 'cooldownMonths'
+      ? Math.max(0, Number(value))
+      : value;
     setFormData(prev => ({
       ...prev,
-      [name]: value
+      [name]: normalizedValue
     }));
     // Clear error for this field
     if (errors[name]) {
@@ -135,6 +147,28 @@ export default function StateFormModal({ state, onClose }: StateFormModalProps) 
             />
             {errors.code && <p className="text-red-500 text-xs mt-1">{errors.code}</p>}
             {state && <p className="text-gray-500 text-xs mt-1">Cannot edit code</p>}
+          </div>
+
+          {/* Cooldown */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Cooldown Months
+            </label>
+            <input
+              type="number"
+              name="cooldownMonths"
+              value={formData.cooldownMonths}
+              onChange={handleChange}
+              min={0}
+              max={120}
+              className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                errors.cooldownMonths ? 'border-red-500' : 'border-gray-300'
+              }`}
+            />
+            {errors.cooldownMonths && (
+              <p className="text-red-500 text-xs mt-1">{errors.cooldownMonths}</p>
+            )}
+            <p className="text-gray-500 text-xs mt-1">Set 0 for no cooldown</p>
           </div>
 
           {/* Name */}

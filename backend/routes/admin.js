@@ -295,24 +295,25 @@ router.post('/staff', [
     }
 
     const { name, email, phone, password, status, department, designation, permissions, notes } = req.body;
+    const normalizedEmail = email.trim().toLowerCase();
 
     // Check if user already exists
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
-      return res.status(400).json({ message: 'User already exists with this email' });
+      return res.status(400).json({ message: 'Email already taken. Use another email.' });
     }
 
     // Check if staff already exists
-    const existingStaff = await Staff.findOne({ email });
+    const existingStaff = await Staff.findOne({ email: normalizedEmail });
     if (existingStaff) {
-      return res.status(400).json({ message: 'Staff already exists with this email' });
+      return res.status(400).json({ message: 'Email already taken. Use another email.' });
     }
 
     // Create new user account for staff
     // Don't hash password here - User model pre-save hook will handle it
     const user = new User({
       name,
-      email,
+      email: normalizedEmail,
       phone,
       password, // Pass plain password - will be hashed by User model
       role_id: 4, // Staff role
@@ -326,7 +327,7 @@ router.post('/staff', [
     const staff = new Staff({
       user_id: user._id,
       name,
-      email,
+      email: normalizedEmail,
       phone,
       department: department || 'Support',
       designation: designation || 'Staff Member',
@@ -378,14 +379,15 @@ router.put('/staff/:id', async (req, res) => {
       staff.name = name;
     }
     if (email) {
+      const normalizedEmail = email.trim().toLowerCase();
       // Check if email is already taken
-      const existingUser = await User.findOne({ email, _id: { $ne: user._id } });
-      const existingStaff = await Staff.findOne({ email, _id: { $ne: staff._id } });
+      const existingUser = await User.findOne({ email: normalizedEmail, _id: { $ne: user._id } });
+      const existingStaff = await Staff.findOne({ email: normalizedEmail, _id: { $ne: staff._id } });
       if (existingUser || existingStaff) {
-        return res.status(400).json({ message: 'Email already in use' });
+        return res.status(400).json({ message: 'Email already taken. Use another email.' });
       }
-      user.email = email;
-      staff.email = email;
+      user.email = normalizedEmail;
+      staff.email = normalizedEmail;
     }
     if (phone) {
       user.phone = phone;
