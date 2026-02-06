@@ -30,7 +30,7 @@ export default function DashboardPage() {
         router.replace('/patient/dashboard')
         return
       }
-      dispatch(getAppointments())
+      dispatch(getAppointments({}))
       dispatch(getStates({}))
       if (user.role_id === 1) {
         fetchAdminStats()

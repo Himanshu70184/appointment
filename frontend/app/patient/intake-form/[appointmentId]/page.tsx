@@ -117,6 +117,10 @@ export default function PatientIntakeFormPage() {
     }
   }
 
+  const handleUploadError = (fieldId: string, message: string) => {
+    setFileErrors(prev => ({ ...prev, [fieldId]: message }))
+  }
+
   const handleFileChange = (fieldId: string, files: FileList | null) => {
     if (files) {
       setFileErrors(prev => {
@@ -127,10 +131,6 @@ export default function PatientIntakeFormPage() {
       setFileInputs(prev => ({ ...prev, [fieldId]: Array.from(files) }))
       // Clear error for this field
       if (errors[fieldId]) {
-          const handleUploadError = (fieldId: string, message: string) => {
-            setFileErrors(prev => ({ ...prev, [fieldId]: message }))
-          }
-
         setErrors(prev => {
           const newErrors = { ...prev }
           delete newErrors[fieldId]
