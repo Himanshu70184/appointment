@@ -1,6 +1,8 @@
 const Appointment = require('../models/Appointment');
 const State = require('../models/State');
 
+const ACTIVE_APPOINTMENT_STATUSES = ['pending', 'approval', 'scheduled', 'rescheduled', 'on-hold'];
+
 const getStateCooldownBlock = async ({ patientId, stateCode }) => {
   if (!patientId || !stateCode) return null;
 
@@ -50,4 +52,19 @@ const getStateCooldownBlock = async ({ patientId, stateCode }) => {
   return null;
 };
 
-module.exports = { getStateCooldownBlock };
+const hasActiveAppointmentInState = async ({ patientId, stateCode }) => {
+  if (!patientId || !stateCode) return null;
+
+  const normalizedState = stateCode.toString().trim().toUpperCase();
+  if (!normalizedState) return null;
+
+  const activeAppointment = await Appointment.findOne({
+    patient_id: patientId,
+    state: { $regex: new RegExp(`^${normalizedState}$`, 'i') },
+    status: { $in: ACTIVE_APPOINTMENT_STATUSES }
+  }).sort({ updatedAt: -1, scheduledDate: -1, createdAt: -1 });
+
+  return activeAppointment || null;
+};
+
+module.exports = { getStateCooldownBlock, hasActiveAppointmentInState };

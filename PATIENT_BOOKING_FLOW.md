@@ -13,26 +13,15 @@ Complete patient-facing appointment booking system with payment processing, mino
 - Choose state
 - Pick date from calendar
 - View available time slots (filtered by doctor availability)
- - Temporary slot locking on “Continue to Your Information”
+- No slot locking; availability is rechecked at booking and again after payment
 
 **Technical Details:**
 - Endpoint: `GET /api/patient-portal/available-slots`
 - Filters: state, date, cardType
 - Time Zone: EST (standardized across system)
 - Returns: Available slots with doctor assignment
-- Slot locks are excluded from availability
-
-**Slot Locking:**
-- Endpoint: `POST /api/patient-portal/lock-slot`
-- When user clicks “Continue to Your Information,” the slot is locked
-- Lock duration: 4 minutes (server-side TTL)
-- If locked by another user, response is 409 with a conflict message
-- Lock is refreshed every 60 seconds while user stays on Step 2
-- Refresh endpoint: `POST /api/patient-portal/refresh-slot-lock`
-
-**Lock Duration Configuration (Code Locations):**
-- `backend/routes/patient-portal.js` → `SLOT_LOCK_MINUTES = 4`
-- `backend/routes/appointments.js` → `SLOT_LOCK_MINUTES = 4` (admin/staff booking)
+- Slots are not locked during step changes
+- Availability is verified again after payment
 
 ---
 
@@ -44,7 +33,7 @@ Complete patient-facing appointment booking system with payment processing, mino
 - Create account with email/password
 - Apply discount coupon at checkout
 - Secure payment processing
- - Slot lock token required to submit booking
+- If the slot becomes unavailable after payment, user is prompted to pick a new time without re-paying
 - Booking summary shown above Step 2 (state, type, date, time, amount)
 
 **Validation:**
@@ -57,17 +46,22 @@ Complete patient-facing appointment booking system with payment processing, mino
 - Endpoint: `POST /api/patient-portal/book-appointment`
 - Payment processed via `processPayment()` utility
 - Account created only if email doesn't exist (guest checkout support)
- - Booking requires `slotLockToken` from lock endpoint
+- No slot lock token required
 
 ---
 
 ### 3. **Payment Processing**
 **Payment Success Behavior:**
 
-| User Type | Status After Payment | Appointment Scheduled |
-|-----------|---------------------|----------------------|
-| Regular Patient (18+) | `scheduled` | ✅ Immediately |
-| Minor (< 18) | `approval` | ⏳ After admin approval |
+| User Type | Status After Payment | Next Step |
+|-----------|---------------------|----------|
+| Regular Patient (18+) | `pending` | Intake submission → `scheduled` |
+| Minor (< 18) | `pending` | Intake submission → `approval` → admin approval → `scheduled` |
+
+**Post-Payment Slot Conflict:**
+- If another user books the slot first, the paid appointment is placed `on-hold`.
+- The patient must select a new slot; payment is reused.
+- Reschedule endpoint: `PUT /api/patient-portal/appointments/:id/reschedule`
 
 **Payment Failure:**
 - Appointment deleted
@@ -78,8 +72,7 @@ Complete patient-facing appointment booking system with payment processing, mino
 ```javascript
 appointment.payment_id = payment._id
 appointment.paymentCompleted = true
-appointment.paymentCompletedAt = new Date()
-appointment.status = isMinor ? 'approval' : 'scheduled'
+appointment.status = 'pending'
 ```
 
 ---
@@ -97,7 +90,7 @@ appointment.status = isMinor ? 'approval' : 'scheduled'
   "message": "Appointment booked successfully!",
   "appointment": {
     "_id": "...",
-    "status": "scheduled|approval",
+    "status": "pending",
     "isMinor": false
   },
   "isNewUser": true,
@@ -139,12 +132,12 @@ appointment.status = isMinor ? 'approval' : 'scheduled'
 
 ### Regular Patient Flow
 ```
-pending → (payment) → scheduled → (intake) → scheduled → (doctor review) → completed
+pending → (payment) → pending → (intake) → scheduled → (doctor review) → completed
 ```
 
 ### Minor Patient Flow
 ```
-pending → (payment) → approval → (admin approves) → scheduled → (intake) → scheduled → completed
+pending → (payment) → pending → (intake) → approval → (admin approves) → scheduled → completed
 ```
 
 ---
@@ -177,8 +170,8 @@ appointment.status = 'scheduled'
 | Endpoint | Method | Access | Purpose |
 |----------|--------|--------|---------|
 | `/api/patient-portal/available-slots` | GET | Public | Fetch time slots |
-| `/api/patient-portal/lock-slot` | POST | Public | Temporarily lock a slot |
 | `/api/patient-portal/book-appointment` | POST | Public | Book & pay |
+| `/api/patient-portal/appointments/:id/reschedule` | PUT | Patient | Reschedule after conflict |
 | `/api/patient-portal/check-intake-eligibility/:id` | GET | Patient | Check if intake can be submitted |
 | `/api/patient-portal/submit-intake/:id` | POST | Patient | Submit intake form |
 | `/api/appointments/:id/approve-guardian` | POST | Admin/Staff | Approve minor appointment |

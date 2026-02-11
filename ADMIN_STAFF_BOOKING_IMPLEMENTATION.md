@@ -42,7 +42,7 @@ Created a **registration-based booking flow** for admin/staff that:
 **New Approach**:
 ```typescript
 Step 1: Appointment Details
-  - State, Appointment Type, Doctor selection
+  - State, Appointment Type (doctor auto-assigned)
   - Date and time slot picker
 
 Step 2: Patient Registration
@@ -73,7 +73,6 @@ const bookingSchema = z.object({
   cardType: z.string().min(1),
   scheduledDate: z.string().min(1),
   scheduledTime: z.string().min(1),
-  doctor_id: z.string().min(1),
   
   // Minor handling
   isMinor: z.boolean().optional(),
@@ -108,7 +107,7 @@ const bookingSchema = z.object({
    const existingAppointment = await Appointment.findOne({
      scheduledDate, 
      scheduledTime, 
-     doctor_id,
+     doctor_id: assignedDoctorId,
      status: { $in: ['scheduled', 'approval', 'pending'] }
    })
    if (existingAppointment) {
@@ -121,7 +120,7 @@ const bookingSchema = z.object({
    const appointment = new Appointment({
      // ... fields ...
      paymentCompleted: true, // Mark as paid (waived)
-     status: isMinor ? 'approval' : 'scheduled',
+     status: 'pending',
      bookedBy: req.user._id // Track admin/staff who booked
    })
    ```

@@ -197,7 +197,6 @@ const sendTemplateEmail = async (user, template, data = {}) => {
           <h2>Appointment Confirmed</h2>
           <p>Hello ${user.name},</p>
           <p>Your appointment has been scheduled for ${data.scheduledDate}.</p>
-          <p>Doctor: ${data.doctorName}</p>
           <p>State: ${data.state}</p>
           <p>Best regards,<br>EHR System Team</p>
         </div>

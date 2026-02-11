@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -37,13 +37,15 @@ export default function AdminBookAppointmentPage() {
   const [selectedDateISO, setSelectedDateISO] = useState('')
   const [availableSlots, setAvailableSlots] = useState<any[]>([])
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
-  const [slotLockToken, setSlotLockToken] = useState<string | null>(null)
   const [slotDuration, setSlotDuration] = useState<number | null>(null)
   const [showMinorFields, setShowMinorFields] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [slotsRequested, setSlotsRequested] = useState(false)
 
   const appointmentDatePickerRef = useRef<HTMLInputElement | null>(null)
   const dobPickerRef = useRef<HTMLInputElement | null>(null)
+  const slotFetchTimerRef = useRef<number | null>(null)
+  const lastSlotRequestRef = useRef('')
 
   const {
     register,
@@ -114,29 +116,6 @@ export default function AdminBookAppointmentPage() {
     }
   }, [dateOfBirth])
 
-  useEffect(() => {
-    setSelectedSlot(null)
-    setSlotLockToken(null)
-  }, [selectedState, selectedCardType, selectedDateISO])
-
-  useEffect(() => {
-    if (step !== 2 || !slotLockToken) return
-
-    const refreshLock = async () => {
-      try {
-        await api.post('/api/patient-portal/refresh-slot-lock', { lockToken: slotLockToken })
-      } catch (error: any) {
-        const message = error.response?.data?.message || 'Your slot reservation expired. Please choose another time.'
-        alert(message)
-        setStep(1)
-        setSlotLockToken(null)
-      }
-    }
-
-    const intervalId = setInterval(refreshLock, 60 * 1000)
-    return () => clearInterval(intervalId)
-  }, [step, slotLockToken])
-
   const fetchStates = async () => {
     try {
       const response = await api.get('/api/states?isActive=true')
@@ -157,13 +136,22 @@ export default function AdminBookAppointmentPage() {
     }
   }
 
-  const handleSlotSelection = async () => {
+  const fetchAvailableSlots = useCallback(async (showMissingAlert = false) => {
     if (!selectedState || !selectedDateISO || !selectedCardType) {
-      alert('Please select state, appointment type, and date')
+      if (showMissingAlert) {
+        alert('Please select state, appointment type, and date')
+      }
       return
     }
 
+    if (slotFetchTimerRef.current !== null) {
+      window.clearTimeout(slotFetchTimerRef.current)
+      slotFetchTimerRef.current = null
+    }
+    lastSlotRequestRef.current = `${selectedState}|${selectedCardType}|${selectedDateISO}`
+
     setLoading(true)
+    setSlotsRequested(true)
     try {
       const response = await api.get('/api/patient-portal/available-slots', {
         params: {
@@ -180,7 +168,41 @@ export default function AdminBookAppointmentPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [selectedCardType, selectedDateISO, selectedState])
+
+  useEffect(() => {
+    setSelectedSlot(null)
+    setSlotsRequested(false)
+
+    if (!selectedState || !selectedCardType || !selectedDateISO) {
+      if (slotFetchTimerRef.current !== null) {
+        window.clearTimeout(slotFetchTimerRef.current)
+        slotFetchTimerRef.current = null
+      }
+      return
+    }
+
+    const requestKey = `${selectedState}|${selectedCardType}|${selectedDateISO}`
+    if (lastSlotRequestRef.current === requestKey) {
+      return
+    }
+
+    if (slotFetchTimerRef.current !== null) {
+      window.clearTimeout(slotFetchTimerRef.current)
+    }
+
+    slotFetchTimerRef.current = window.setTimeout(() => {
+      lastSlotRequestRef.current = requestKey
+      fetchAvailableSlots(false)
+    }, 400)
+
+    return () => {
+      if (slotFetchTimerRef.current !== null) {
+        window.clearTimeout(slotFetchTimerRef.current)
+        slotFetchTimerRef.current = null
+      }
+    }
+  }, [selectedState, selectedCardType, selectedDateISO, fetchAvailableSlots])
 
   const handleSlotConfirm = async () => {
     if (!selectedSlot) {
@@ -188,20 +210,7 @@ export default function AdminBookAppointmentPage() {
       return
     }
 
-    try {
-      const response = await api.post('/api/patient-portal/lock-slot', {
-        state: selectedState,
-        cardType: selectedCardType,
-        scheduledDate: selectedDateISO,
-        scheduledTime: selectedSlot,
-      })
-
-      setSlotLockToken(response.data.lockToken)
-      setStep(2)
-    } catch (error: any) {
-      const message = error.response?.data?.message || 'This slot is temporarily locked. Please choose another time.'
-      alert(message)
-    }
+    setStep(2)
   }
 
   const formatTimeRange = (startTime: string, duration: number | null) => {
@@ -223,11 +232,6 @@ export default function AdminBookAppointmentPage() {
 
   const onSubmit = async (data: BookingFormData) => {
     if (!selectedSlot || !selectedCardType) return
-    if (!slotLockToken) {
-      alert('Your slot reservation expired. Please choose a time slot again.')
-      setStep(1)
-      return
-    }
 
     if (showMinorFields) {
       if (!data.guardianName || !data.guardianPhone || !data.guardianAddress) {
@@ -249,7 +253,6 @@ export default function AdminBookAppointmentPage() {
         cardType: selectedCardType,
         scheduledDate: selectedDateISO,
         scheduledTime: selectedSlot,
-        slotLockToken,
         isMinor: showMinorFields,
         guardianName: showMinorFields ? data.guardianName : undefined,
         guardianPhone: showMinorFields ? data.guardianPhone : undefined,
@@ -266,7 +269,7 @@ export default function AdminBookAppointmentPage() {
       if (error.response?.data?.slotConflict) {
         alert(error.response.data.message)
         setStep(1)
-        handleSlotSelection()
+        fetchAvailableSlots(false)
       } else {
         alert(error.response?.data?.message || 'Booking failed')
       }
@@ -376,43 +379,44 @@ export default function AdminBookAppointmentPage() {
             </div>
           </div>
 
-          <button
-            onClick={handleSlotSelection}
-            disabled={!selectedState || !selectedCardType || !selectedDateISO || loading}
-            className="btn-primary w-full"
-          >
-            {loading ? 'Loading slots...' : 'Find Available Slots'}
-          </button>
         </div>
       </div>
 
       <div className="mt-6">
         <h3 className="text-lg font-semibold mb-3">Available Time Slots</h3>
 
-        {loading ? (
-          <p className="text-center py-8">Loading available slots...</p>
-        ) : availableSlots.length === 0 ? (
+        {!slotsRequested && (
           <div className="text-center py-8">
-            <p className="text-gray-600">No available slots for selected date</p>
+            <p className="text-gray-600">Select state, appointment type, and date to load slots.</p>
           </div>
-        ) : (
-          <div className="max-h-[420px] overflow-y-auto pr-2">
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-              {availableSlots.map((slot, index) => (
-                <button
-                  key={index}
-                  onClick={() => setSelectedSlot(slot.time)}
-                  className={`p-3 border-2 rounded-lg transition-colors text-left ${
-                    selectedSlot === slot.time
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:border-blue-300'
-                  }`}
-                >
-                  <div className="font-semibold text-sm">{formatTimeRange(slot.time, slotDuration)}</div>
-                </button>
-              ))}
+        )}
+
+        {slotsRequested && (
+          loading ? (
+            <p className="text-center py-8">Loading available slots...</p>
+          ) : availableSlots.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-gray-600">No available slots for selected date</p>
             </div>
-          </div>
+          ) : (
+            <div className="max-h-[420px] overflow-y-auto pr-2">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                {availableSlots.map((slot, index) => (
+                  <button
+                    key={index}
+                    onClick={() => setSelectedSlot(slot.time)}
+                    className={`p-3 border-2 rounded-lg transition-colors text-left ${
+                      selectedSlot === slot.time
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-200 hover:border-blue-300'
+                    }`}
+                  >
+                    <div className="font-semibold text-sm">{formatTimeRange(slot.time, slotDuration)}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )
         )}
       </div>
 

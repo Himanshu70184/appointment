@@ -18,28 +18,32 @@ import type { AppDispatch, RootState } from '@/store/store'
 import api from '@/lib/api'
 import Cookies from 'js-cookie'
 
-const bookingSchema = z.object({
-  firstName: z.string().min(2, 'First name is required'),
-  lastName: z.string().min(2, 'Last name is required'),
-  email: z.string().email('Valid email is required'),
-  phone: z.string().regex(/^\d{10}$/, 'Enter 10-digit phone number'),
-  dateOfBirth: z.string().regex(/^(0[1-9]|1[0-2])\/(0[1-9]|[12]\d|3[01])\/\d{4}$/, 'Use MM/DD/YYYY format'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
-  confirmPassword: z.string(),
-  guardianName: z.string().optional(),
-  guardianPhone: z.string().optional(),
-  guardianAddress: z.string().optional(),
-  cardNumber: z.string().regex(/^\d{16}$/, 'Enter valid 16-digit card number'),
-  expirationDate: z.string().regex(/^\d{2}\/\d{2}$/, 'Format: MM/YY'),
-  cvv: z.string().regex(/^\d{3,4}$/, 'Enter 3 or 4 digit CVV'),
-  billingAddress: z.string().min(5, 'Billing address is required'),
-  city: z.string().min(2, 'City is required'),
-  billingState: z.string().length(2, 'Enter 2-letter state code'),
-  zip: z.string().regex(/^\d{5}$/, 'Enter 5-digit ZIP code'),
-}).refine((data) => data.password === data.confirmPassword, {
-  message: 'Passwords do not match',
-  path: ['confirmPassword'],
-})
+const bookingSchema = z
+  .object({
+    firstName: z.string().min(2, 'First name is required'),
+    lastName: z.string().min(2, 'Last name is required'),
+    email: z.string().email('Valid email is required'),
+    phone: z.string().regex(/^[0-9]{10}$/, 'Enter 10-digit phone number'),
+    dateOfBirth: z
+      .string()
+      .regex(/^(0[1-9]|1[0-2])\/(0[1-9]|[12]\d|3[01])\/\d{4}$/, 'Use MM/DD/YYYY format'),
+    password: z.string().min(6, 'Password must be at least 6 characters'),
+    confirmPassword: z.string(),
+    guardianName: z.string().optional(),
+    guardianPhone: z.string().optional(),
+    guardianAddress: z.string().optional(),
+    cardNumber: z.string().regex(/^[0-9]{16}$/, 'Enter valid 16-digit card number'),
+    expirationDate: z.string().regex(/^\d{2}\/\d{2}$/, 'Format: MM/YY'),
+    cvv: z.string().regex(/^\d{3,4}$/, 'Enter 3 or 4 digit CVV'),
+    billingAddress: z.string().min(5, 'Billing address is required'),
+    city: z.string().min(2, 'City is required'),
+    billingState: z.string().length(2, 'Enter 2-letter state code'),
+    zip: z.string().regex(/^[0-9]{5}$/, 'Enter 5-digit ZIP code'),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
+  })
 
 type BookingFormData = z.infer<typeof bookingSchema>
 
@@ -49,6 +53,8 @@ export default function PatientBookingPage() {
   const { states, availableSlots, slotDuration, loading, error, success } = useSelector(
     (state: RootState) => state.patientPortal
   )
+  const { user } = useSelector((state: RootState) => state.auth)
+  const isLoggedInPatient = user?.role_id === 3
 
   const [step, setStep] = useState(1)
   const [selectedState, setSelectedState] = useState('')
@@ -56,17 +62,22 @@ export default function PatientBookingPage() {
   const [selectedDateDisplay, setSelectedDateDisplay] = useState('')
   const [selectedDateISO, setSelectedDateISO] = useState('')
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
-  const [slotLockToken, setSlotLockToken] = useState<string | null>(null)
+  const [paidAppointmentId, setPaidAppointmentId] = useState<string | null>(null)
   const [appointmentTypes, setAppointmentTypes] = useState<any[]>([])
   const [showMinorFields, setShowMinorFields] = useState(false)
   const [slotsRequested, setSlotsRequested] = useState(false)
   const [couponCode, setCouponCode] = useState('')
   const [couponData, setCouponData] = useState<any>(null)
   const [finalAmount, setFinalAmount] = useState(0)
-  const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null)
+  const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(
+    null
+  )
+  const isRescheduleOnly = Boolean(paidAppointmentId)
 
   const appointmentDatePickerRef = useRef<HTMLInputElement | null>(null)
   const dobPickerRef = useRef<HTMLInputElement | null>(null)
+  const slotFetchTimerRef = useRef<number | null>(null)
+  const lastSlotRequestRef = useRef('')
 
   const {
     register,
@@ -92,26 +103,43 @@ export default function PatientBookingPage() {
   useEffect(() => {
     setSelectedSlot(null)
     setSlotsRequested(false)
-    setSlotLockToken(null)
-  }, [selectedState, selectedCardType, selectedDateISO])
 
-  useEffect(() => {
-    if (step !== 2 || !slotLockToken) return
-
-    const refreshLock = async () => {
-      try {
-        await api.post('/api/patient-portal/refresh-slot-lock', { lockToken: slotLockToken })
-      } catch (error: any) {
-        const message = error.response?.data?.message || 'Your slot reservation expired. Please choose another time.'
-        showToast('error', formatEligibleDateMessage(message))
-        setStep(1)
-        setSlotLockToken(null)
+    if (!selectedState || !selectedCardType || !selectedDateISO) {
+      if (slotFetchTimerRef.current !== null) {
+        window.clearTimeout(slotFetchTimerRef.current)
+        slotFetchTimerRef.current = null
       }
+      return
     }
 
-    const intervalId = setInterval(refreshLock, 60 * 1000)
-    return () => clearInterval(intervalId)
-  }, [step, slotLockToken])
+    const requestKey = `${selectedState}|${selectedCardType}|${selectedDateISO}`
+    if (lastSlotRequestRef.current === requestKey) {
+      return
+    }
+
+    if (slotFetchTimerRef.current !== null) {
+      window.clearTimeout(slotFetchTimerRef.current)
+    }
+
+    slotFetchTimerRef.current = window.setTimeout(() => {
+      lastSlotRequestRef.current = requestKey
+      setSlotsRequested(true)
+      dispatch(
+        getAvailableSlots({
+          state: selectedState,
+          date: selectedDateISO,
+          cardType: selectedCardType,
+        })
+      )
+    }, 400)
+
+    return () => {
+      if (slotFetchTimerRef.current !== null) {
+        window.clearTimeout(slotFetchTimerRef.current)
+        slotFetchTimerRef.current = null
+      }
+    }
+  }, [selectedState, selectedCardType, selectedDateISO, dispatch])
 
   const parseMMDDYYYY = (value?: string) => {
     if (!value) return null
@@ -143,6 +171,23 @@ export default function PatientBookingPage() {
       element.focus()
     }
   }
+
+  useEffect(() => {
+    if (!user || user.role_id !== 3) return
+
+    const fullName = user.name?.trim() || ''
+    const [firstNameFromName, ...restName] = fullName.split(' ').filter(Boolean)
+    const lastNameFromName = restName.join(' ')
+
+    setValue('firstName', user.firstName || firstNameFromName || '', { shouldValidate: true })
+    setValue('lastName', user.lastName || lastNameFromName || '', { shouldValidate: true })
+    setValue('email', user.email || '', { shouldValidate: true })
+    setValue('phone', user.phone || '', { shouldValidate: true })
+
+    if (user.dateOfBirth) {
+      setValue('dateOfBirth', formatISOToMMDDYYYY(user.dateOfBirth), { shouldValidate: true })
+    }
+  }, [user, setValue])
 
   useEffect(() => {
     if (dateOfBirth) {
@@ -196,8 +241,8 @@ export default function PatientBookingPage() {
         params: selectedState ? { state: selectedState } : {},
       })
       setAppointmentTypes(response.data.appointmentTypes || [])
-    } catch (error) {
-      console.error('Failed to fetch appointment types:', error)
+    } catch (fetchError) {
+      console.error('Failed to fetch appointment types:', fetchError)
     }
   }
 
@@ -206,6 +251,11 @@ export default function PatientBookingPage() {
       showToast('error', 'Please select state, card type, and date')
       return
     }
+    if (slotFetchTimerRef.current !== null) {
+      window.clearTimeout(slotFetchTimerRef.current)
+      slotFetchTimerRef.current = null
+    }
+    lastSlotRequestRef.current = `${selectedState}|${selectedCardType}|${selectedDateISO}`
     setSlotsRequested(true)
     dispatch(
       getAvailableSlots({
@@ -222,20 +272,31 @@ export default function PatientBookingPage() {
       return
     }
 
-    try {
-      const response = await api.post('/api/patient-portal/lock-slot', {
-        state: selectedState,
-        cardType: selectedCardType,
-        scheduledDate: selectedDateISO,
-        scheduledTime: selectedSlot,
-      })
+    if (paidAppointmentId) {
+      try {
+        const response = await api.put(
+          `/api/patient-portal/appointments/${paidAppointmentId}/reschedule`,
+          {
+            scheduledDate: selectedDateISO,
+            scheduledTime: selectedSlot,
+          }
+        )
 
-      setSlotLockToken(response.data.lockToken)
-      setStep(2)
-    } catch (error: any) {
-      const message = error.response?.data?.message || 'This slot is temporarily locked. Please choose another time.'
-      showToast('error', formatEligibleDateMessage(message))
+        if (response.data?.appointment?._id) {
+          setPaidAppointmentId(null)
+          router.push(`/patient/intake-form/${response.data.appointment._id}`)
+          return
+        }
+      } catch (rescheduleError: any) {
+        const message =
+          rescheduleError.response?.data?.message ||
+          'Unable to reschedule. Please choose another slot.'
+        showToast('error', formatEligibleDateMessage(message))
+        return
+      }
     }
+
+    setStep(2)
   }
 
   const getSlotTime = (slot: any) => {
@@ -276,8 +337,8 @@ export default function PatientBookingPage() {
       setCouponData(result)
       setFinalAmount(result.finalAmount)
       showToast('success', `Coupon applied! You save $${result.discountAmount.toFixed(2)}`)
-    } catch (err: any) {
-      showToast('error', err.message || 'Invalid coupon code')
+    } catch (couponError: any) {
+      showToast('error', couponError.message || 'Invalid coupon code')
       setCouponData(null)
       setFinalAmount(appointmentType.price)
     }
@@ -286,11 +347,6 @@ export default function PatientBookingPage() {
   const onSubmit = async (data: BookingFormData) => {
     const appointmentType = appointmentTypes.find((c) => c._id === selectedCardType)
     if (!appointmentType || !selectedSlot) return
-    if (!slotLockToken) {
-      showToast('error', 'Your slot reservation expired. Please choose a time slot again.')
-      setStep(1)
-      return
-    }
 
     const bookingData = {
       firstName: data.firstName,
@@ -303,7 +359,6 @@ export default function PatientBookingPage() {
       cardType: selectedCardType,
       scheduledDate: selectedDateISO,
       scheduledTime: selectedSlot,
-      slotLockToken,
       couponCode: couponData ? couponCode : undefined,
       guardianName: showMinorFields ? data.guardianName : undefined,
       guardianPhone: showMinorFields ? data.guardianPhone : undefined,
@@ -331,9 +386,20 @@ export default function PatientBookingPage() {
         localStorage.setItem('pendingIntakeAppointment', result.appointment._id)
         router.push(`/patient/intake-form/${result.appointment._id}`)
       }
-    } catch (err: any) {
-      if (err.slotConflict) {
-        showToast('error', formatEligibleDateMessage(err.message))
+    } catch (submitError: any) {
+      if (submitError.token) {
+        Cookies.set('token', submitError.token, { expires: 7, sameSite: 'lax', path: '/' })
+      }
+
+      if (submitError.slotConflictAfterPayment && submitError.appointmentId) {
+        setPaidAppointmentId(submitError.appointmentId)
+        showToast('error', formatEligibleDateMessage(submitError.message))
+        setStep(1)
+        return
+      }
+
+      if (submitError.slotConflict) {
+        showToast('error', formatEligibleDateMessage(submitError.message))
         setStep(1)
         dispatch(
           getAvailableSlots({
@@ -342,10 +408,10 @@ export default function PatientBookingPage() {
             cardType: selectedCardType,
           })
         )
-      } else if (err.paymentFailed) {
+      } else if (submitError.paymentFailed) {
         showToast('error', 'Payment failed. Please check your card details and try again.')
       } else {
-        showToast('error', formatEligibleDateMessage(err.message || 'Booking failed'))
+        showToast('error', formatEligibleDateMessage(submitError.message || 'Booking failed'))
       }
     }
   }
@@ -362,16 +428,17 @@ export default function PatientBookingPage() {
               <select
                 value={selectedState}
                 onChange={(e) => setSelectedState(e.target.value)}
+                disabled={isRescheduleOnly}
                 className="input w-full"
               >
                 <option value="">Choose a state...</option>
                 {[...states]
                   .sort((a: any, b: any) => a.name.localeCompare(b.name))
                   .map((state: any) => (
-                  <option key={state.code} value={state.code}>
-                    {state.name}
-                  </option>
-                ))}
+                    <option key={state.code} value={state.code}>
+                      {state.name}
+                    </option>
+                  ))}
               </select>
             </div>
 
@@ -382,6 +449,7 @@ export default function PatientBookingPage() {
                   <div
                     key={type._id}
                     onClick={() => {
+                      if (isRescheduleOnly) return
                       setSelectedCardType(type._id)
                       setFinalAmount(type.price)
                     }}
@@ -450,14 +518,6 @@ export default function PatientBookingPage() {
                 />
               </div>
             </div>
-
-            <button
-              onClick={handleSlotSelection}
-              disabled={!selectedState || !selectedCardType || !selectedDateISO}
-              className="btn-primary w-full"
-            >
-              Find Available Times
-            </button>
           </div>
         </div>
       </div>
@@ -472,6 +532,12 @@ export default function PatientBookingPage() {
               </span>
             )}
           </div>
+
+          {isRescheduleOnly && (
+            <div className="mb-3 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-md p-3">
+              Payment completed. Please choose a new time to confirm your appointment.
+            </div>
+          )}
 
           <div className="max-h-[480px] overflow-y-auto pr-1">
             {!slotsRequested && (
@@ -490,20 +556,20 @@ export default function PatientBookingPage() {
                   const slotTime = getSlotTime(slot)
                   if (!slotTime) return null
                   return (
-                  <button
-                    key={slotTime}
-                    type="button"
-                    onClick={() => setSelectedSlot(slotTime)}
-                    className={`p-3 rounded-lg border-2 text-left transition-colors ${
-                      selectedSlot === slotTime
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 hover:border-blue-300'
-                    }`}
-                  >
-                    <div className="font-semibold text-gray-900">
-                      {formatTimeRange(slotTime, slotDuration)}
-                    </div>
-                  </button>
+                    <button
+                      key={slotTime}
+                      type="button"
+                      onClick={() => setSelectedSlot(slotTime)}
+                      className={`p-3 rounded-lg border-2 text-left transition-colors ${
+                        selectedSlot === slotTime
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200 hover:border-blue-300'
+                      }`}
+                    >
+                      <div className="font-semibold text-gray-900">
+                        {formatTimeRange(slotTime, slotDuration)}
+                      </div>
+                    </button>
                   )
                 })}
               </div>
@@ -511,13 +577,16 @@ export default function PatientBookingPage() {
           </div>
 
           <div className="mt-6 flex gap-3">
+            <button type="button" onClick={handleSlotSelection} className="btn-secondary">
+              Refresh Slots
+            </button>
             <button
               type="button"
               onClick={handleSlotConfirm}
               disabled={!selectedSlot}
               className="btn-primary flex-1"
             >
-              Continue to Your Information
+              {isRescheduleOnly ? 'Confirm New Time' : 'Continue to Your Information'}
             </button>
           </div>
         </div>
@@ -567,7 +636,7 @@ export default function PatientBookingPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium mb-2">First Name *</label>
-            <input {...register('firstName')} className="input w-full" />
+            <input {...register('firstName')} disabled={isLoggedInPatient} className="input w-full" />
             {errors.firstName && (
               <p className="text-red-500 text-sm mt-1">{errors.firstName.message}</p>
             )}
@@ -575,7 +644,7 @@ export default function PatientBookingPage() {
 
           <div>
             <label className="block text-sm font-medium mb-2">Last Name *</label>
-            <input {...register('lastName')} className="input w-full" />
+            <input {...register('lastName')} disabled={isLoggedInPatient} className="input w-full" />
             {errors.lastName && (
               <p className="text-red-500 text-sm mt-1">{errors.lastName.message}</p>
             )}
@@ -583,13 +652,18 @@ export default function PatientBookingPage() {
 
           <div>
             <label className="block text-sm font-medium mb-2">Email *</label>
-            <input type="email" {...register('email')} className="input w-full" />
+            <input type="email" {...register('email')} disabled={isLoggedInPatient} className="input w-full" />
             {errors.email && <p className="text-red-500 text-sm mt-1">{errors.email.message}</p>}
           </div>
 
           <div>
             <label className="block text-sm font-medium mb-2">Phone (10 digits) *</label>
-            <input {...register('phone')} placeholder="1234567890" className="input w-full" />
+            <input
+              {...register('phone')}
+              placeholder="1234567890"
+              disabled={isLoggedInPatient}
+              className="input w-full"
+            />
             {errors.phone && <p className="text-red-500 text-sm mt-1">{errors.phone.message}</p>}
           </div>
 
@@ -602,6 +676,7 @@ export default function PatientBookingPage() {
                 placeholder="MM/DD/YYYY"
                 maxLength={10}
                 {...register('dateOfBirth')}
+                disabled={isLoggedInPatient}
                 className="input w-full pr-10"
               />
               <button
@@ -609,6 +684,7 @@ export default function PatientBookingPage() {
                 onClick={() => openNativePicker(dobPickerRef)}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500"
                 aria-label="Open date of birth calendar"
+                disabled={isLoggedInPatient}
               >
                 📅
               </button>
@@ -686,9 +762,7 @@ export default function PatientBookingPage() {
         </div>
         {couponData && (
           <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded">
-            <p className="text-green-800">
-              ✓ Coupon applied! Discount: ${couponData.discountAmount.toFixed(2)}
-            </p>
+            <p className="text-green-800">✓ Coupon applied! Discount: ${couponData.discountAmount.toFixed(2)}</p>
           </div>
         )}
       </div>
@@ -725,12 +799,7 @@ export default function PatientBookingPage() {
 
           <div>
             <label className="block text-sm font-medium mb-2">CVV *</label>
-            <input
-              {...register('cvv')}
-              placeholder="123"
-              maxLength={4}
-              className="input w-full"
-            />
+            <input {...register('cvv')} placeholder="123" maxLength={4} className="input w-full" />
             {errors.cvv && <p className="text-red-500 text-sm mt-1">{errors.cvv.message}</p>}
           </div>
 
@@ -750,12 +819,7 @@ export default function PatientBookingPage() {
 
           <div>
             <label className="block text-sm font-medium mb-2">State *</label>
-            <input
-              {...register('billingState')}
-              placeholder="CA"
-              maxLength={2}
-              className="input w-full"
-            />
+            <input {...register('billingState')} placeholder="CA" maxLength={2} className="input w-full" />
             {errors.billingState && (
               <p className="text-red-500 text-sm mt-1">{errors.billingState.message}</p>
             )}
@@ -763,12 +827,7 @@ export default function PatientBookingPage() {
 
           <div>
             <label className="block text-sm font-medium mb-2">ZIP Code *</label>
-            <input
-              {...register('zip')}
-              placeholder="12345"
-              maxLength={5}
-              className="input w-full"
-            />
+            <input {...register('zip')} placeholder="12345" maxLength={5} className="input w-full" />
             {errors.zip && <p className="text-red-500 text-sm mt-1">{errors.zip.message}</p>}
           </div>
         </div>
@@ -805,9 +864,7 @@ export default function PatientBookingPage() {
                 : 'bg-blue-50 text-blue-800 border-blue-200'
             }`}
           >
-            <span>
-              {toast.type === 'success' ? '✓' : toast.type === 'error' ? '✕' : 'ℹ'}
-            </span>
+            <span>{toast.type === 'success' ? '✓' : toast.type === 'error' ? '✕' : 'ℹ'}</span>
             <span>{toast.message}</span>
           </div>
         </div>
@@ -824,7 +881,7 @@ export default function PatientBookingPage() {
             >
               1
             </div>
-            <div className="w-16 h-1 bg-gray-300"></div>
+            <div className="w-16 h-1 bg-gray-300" />
             <div
               className={`flex items-center justify-center w-10 h-10 rounded-full ${
                 step >= 2 ? 'bg-blue-600 text-white' : 'bg-gray-300'

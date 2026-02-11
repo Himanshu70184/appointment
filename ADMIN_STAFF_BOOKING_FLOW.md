@@ -13,7 +13,7 @@ The admin and staff booking flow allows administrators and staff members to book
 | **Patient Dropdown** | N/A | Removed (uses registration flow instead) |
 | **Email Verification** | Required before booking | **Auto-activated** |
 | **Workflow** | Register → Verify → Book → Pay → Intake | Book → Register → Intake |
-| **Status** | Pending payment | Scheduled immediately |
+| **Status** | Pending payment | Pending (requires approval/intake) |
 
 ---
 
@@ -23,10 +23,9 @@ The admin and staff booking flow allows administrators and staff members to book
 Admin/Staff enters:
 - **State**: Which state the appointment is for
 - **Appointment Type**: New patient, renewal, consultation, etc.
-- **Doctor**: Select from available doctors
 - **Date & Time**: Choose from available slots
-- **Slot Lock**: When clicking “Continue to Patient Information,” the slot is temporarily locked
-- **Lock Refresh**: While on Step 2, the lock is refreshed every 60 seconds
+- **Doctor Assignment**: Auto-selected based on availability and cost
+- **No Slot Lock**: Availability is checked again at submit time
 
 ### Step 2: Patient Registration
 Admin/Staff enters patient information:
@@ -44,15 +43,13 @@ Backend handles:
    - If new: Create account with `status: 'active'` (skip email verification)
 
 2. **Validate slot availability**
-   - Ensure slot not double-booked
-   - Return conflict error if slot taken
-  - Enforce temporary slot lock (4-minute TTL)
-  - Refresh lock while staff completes Step 2
+  - Ensure slot not double-booked
+  - Return conflict error if slot taken
 
 3. **Create appointment**
-   - Set `paymentCompleted: true` (no payment required)
-   - Set `status: 'scheduled'` (adults) or `'approval'` (minors)
-   - Track `bookedBy` field (admin/staff who created it)
+  - Set `paymentCompleted: true` (no payment required)
+  - Set `status: 'pending'` (admin/staff bookings require intake before scheduling)
+  - Track `bookedBy` field (admin/staff who created it)
 
 4. **Send notifications**
    - Email to patient with appointment details
@@ -112,7 +109,6 @@ const bookingSchema = z.object({
   cardType: z.string().min(1, 'Appointment type is required'),
   scheduledDate: z.string().min(1, 'Date is required'),
   scheduledTime: z.string().min(1, 'Time slot is required'),
-  doctor_id: z.string().min(1, 'Doctor selection is required'),
   
   // Minor handling
   isMinor: z.boolean().optional(),
@@ -160,8 +156,6 @@ const onSubmit = async (data) => {
   "cardType": "64abc...123", // AppointmentType ObjectId
   "scheduledDate": "2024-02-15",
   "scheduledTime": "10:00 AM",
-  "slotLockToken": "lock-token-from-lock-endpoint",
-  "doctor_id": "64def...456",
   "isMinor": false,
   "guardianName": "", // Required if isMinor=true
   "guardianPhone": "",
@@ -179,7 +173,7 @@ const onSubmit = async (data) => {
     "patient_id": "64user...123",
     "scheduledDate": "2024-02-15T00:00:00.000Z",
     "scheduledTime": "10:00 AM",
-    "status": "scheduled"
+    "status": "pending"
   },
   "patient": {
     "_id": "64user...123",
@@ -193,7 +187,7 @@ const onSubmit = async (data) => {
 **Response Errors**:
 - `400`: Validation errors (missing fields, invalid format)
 - `404`: Appointment type not found
-- `409`: Slot conflict (already booked or lock expired)
+- `409`: Slot conflict (already booked)
 - `500`: Server error
 
 **Backend Logic Flow**:
@@ -209,8 +203,8 @@ const onSubmit = async (data) => {
    - If isMinor=true, require guardian info
 4. Get appointment type details from database
 5. Check slot availability
-   - Query: { scheduledDate, scheduledTime, doctor_id, status: ['scheduled', 'approval', 'pending'] }
-   - If conflict found, return 409 error
+  - Query: { scheduledDate, scheduledTime, doctor_id, status: ['scheduled', 'approval', 'pending'] }
+  - If conflict found, return 409 error
 6. Create appointment:
    - Set paymentCompleted: true
    - Set status: 'scheduled' (or 'approval' for minors)
