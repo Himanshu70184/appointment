@@ -164,6 +164,10 @@ const appointmentSchema = new mongoose.Schema({
   couponCode: {
     type: String
   },
+  couponDiscountAmount: {
+    type: Number,
+    default: 0
+  },
   ageVerified: {
     type: Boolean,
     default: false

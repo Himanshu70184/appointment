@@ -12,6 +12,7 @@ import patientPortalReducer from './slices/patientPortalSlice'
 import doctorAvailabilityReducer from './slices/doctorAvailabilitySlice'
 import intakeFormTemplateReducer from './slices/intakeFormTemplateSlice'
 import intakeFormSubmissionReducer from './slices/intakeFormSubmissionSlice'
+import couponReducer from './slices/couponSlice'
 
 export const store = configureStore({
   reducer: {
@@ -28,6 +29,7 @@ export const store = configureStore({
     doctorAvailability: doctorAvailabilityReducer,
     intakeFormTemplates: intakeFormTemplateReducer,
     intakeFormSubmissions: intakeFormSubmissionReducer,
+    coupons: couponReducer,
   },
 })
 

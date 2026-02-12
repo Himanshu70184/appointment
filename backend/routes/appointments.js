@@ -15,6 +15,7 @@ const { processPayment } = require('../utils/payment');
 const { sendAppointmentNotification, sendTemplateEmail } = require('../utils/email');
 const { paginate, parseSortParam } = require('../utils/pagination');
 const { getStateCooldownBlock, hasActiveAppointmentInState } = require('../utils/bookingCooldown');
+const { validateAndCalculateCoupon, CouponValidationError } = require('../utils/coupon');
 
 const router = express.Router();
 
@@ -554,15 +555,27 @@ router.post('/', [
 
     // Calculate amount (apply coupon if provided)
     let amount = appointmentType.price;
+    let appliedCoupon = null;
+    let couponSavings = 0;
+
     if (couponCode) {
-      const Coupon = require('../models/Coupon');
-      const coupon = await Coupon.findOne({ code: couponCode.toUpperCase(), isActive: true });
-      if (coupon && new Date(coupon.validUntil) > new Date() && coupon.usedCount < (coupon.usageLimit || Infinity)) {
-        if (coupon.discountType === 'percentage') {
-          amount = amount * (1 - coupon.discountValue / 100);
-        } else {
-          amount = Math.max(0, amount - coupon.discountValue);
+      try {
+        const couponResult = await validateAndCalculateCoupon({
+          couponCode,
+          amount,
+          stateCode: req.body.state || req.user.state,
+          appointmentTypeId: appointmentType_id
+        });
+
+        amount = couponResult.finalAmount;
+        appliedCoupon = couponResult.coupon;
+        couponSavings = couponResult.discountAmount;
+      } catch (couponError) {
+        if (couponError instanceof CouponValidationError) {
+          return res.status(couponError.statusCode || 400).json({ message: couponError.message });
         }
+        console.error('Coupon validation failed:', couponError);
+        return res.status(500).json({ message: 'Failed to apply coupon', error: couponError.message });
       }
     }
 
@@ -570,26 +583,37 @@ router.post('/', [
     const appointment = new Appointment({
       patient_id: req.user._id,
       appointmentType: appointmentType_id,
-      status: 'pending'
+      status: 'pending',
+      couponCode: appliedCoupon ? appliedCoupon.code : undefined,
+      adjustedAmount: amount,
+      couponDiscountAmount: couponSavings > 0 ? couponSavings : 0
     });
 
     await appointment.save();
 
     // Process payment
-    const paymentResult = await processPayment(
-      { ...paymentData, amount },
-      req.user._id,
-      appointment._id
-    );
-
-    if (!paymentResult.success) {
+    let payment;
+    try {
+      const paymentResult = await processPayment(
+        req.user._id,
+        appointment._id,
+        amount,
+        paymentData
+      );
+      payment = paymentResult.payment;
+    } catch (paymentError) {
       await Appointment.findByIdAndDelete(appointment._id);
-      return res.status(400).json({ message: 'Payment failed', error: paymentResult.error });
+      return res.status(400).json({ message: paymentError.message || 'Payment failed' });
     }
 
     // Update appointment with payment ID
-    appointment.payment_id = paymentResult.payment._id;
+    appointment.payment_id = payment._id;
     await appointment.save();
+
+    if (appliedCoupon) {
+      appliedCoupon.usedCount += 1;
+      await appliedCoupon.save();
+    }
 
     // Create notification
     await Notification.create({
@@ -603,7 +627,7 @@ router.post('/', [
     res.status(201).json({
       message: 'Appointment created successfully',
       appointment,
-      payment: paymentResult.payment
+      payment
     });
   } catch (error) {
     console.error('Create appointment error:', error);

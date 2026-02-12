@@ -47,6 +47,29 @@ const couponSchema = new mongoose.Schema({
   applicableStates: [{
     type: String
   }],
+  applicableAppointmentTypes: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'AppointmentType'
+  }],
+  appointmentTypeOverrides: [{
+    appointmentType: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'AppointmentType',
+      required: true
+    },
+    discountType: {
+      type: String,
+      enum: ['percentage', 'fixed'],
+      required: true
+    },
+    discountValue: {
+      type: Number,
+      required: true
+    },
+    maxDiscount: {
+      type: Number
+    }
+  }],
   createdAt: {
     type: Date,
     default: Date.now
@@ -55,6 +78,11 @@ const couponSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   }
+});
+
+couponSchema.pre('save', function updateTimestamp(next) {
+  this.updatedAt = new Date();
+  next();
 });
 
 module.exports = mongoose.model('Coupon', couponSchema);

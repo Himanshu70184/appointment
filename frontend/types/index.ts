@@ -105,6 +105,8 @@ export interface Appointment {
   status: 'pending' | 'scheduled' | 'completed' | 'cancelled' | 'need_admin_approval' | 'approval' | 'rescheduled' | 'on-hold'
   amount?: number
   adjustedAmount?: number
+  couponCode?: string
+  couponDiscountAmount?: number
   payment_status?: 'pending' | 'completed' | 'failed' | 'refunded'
   payment_id?: string | { amount?: number; status?: string; transactionId?: string }
   paymentCompleted?: boolean
@@ -153,10 +155,39 @@ export interface Coupon {
   discountValue: number
   validFrom: string
   validUntil: string
-  usageLimit: number
+  usageLimit?: number | null
   usedCount: number
   isActive: boolean
-  description: string
+  description?: string
+  minPurchase?: number
+  maxDiscount?: number
+  applicableStates?: string[]
+  applicableAppointmentTypes?: Array<
+    string | {
+      _id: string
+      name: string
+      price?: number
+      duration?: number
+    }
+  >
+  appointmentTypeOverrides?: Array<{
+    appointmentType:
+      | string
+      | {
+          _id: string
+          name: string
+          price?: number
+          duration?: number
+        }
+    discountType: 'percentage' | 'fixed'
+    discountValue: number
+    maxDiscount?: number
+  }>
+  createdAt?: string
+  updatedAt?: string
+  redemptionCount?: number
+  lastRedeemedAt?: string | null
+  totalSavings?: number
 }
 
 export interface Lead {

@@ -35,6 +35,8 @@ export interface Appointment {
     dateOfBirth?: string;
   };
   adjustedAmount?: number;
+  couponCode?: string;
+  couponDiscountAmount?: number;
   doctor_id?: {
     name: string;
     email: string;
@@ -168,11 +170,21 @@ export const changePassword = createAsyncThunk(
 
 export const validateCoupon = createAsyncThunk(
   'patientPortal/validateCoupon',
-  async ({ couponCode, amount }: { couponCode: string; amount: number }, { rejectWithValue }) => {
+  async (
+    {
+      couponCode,
+      amount,
+      state,
+      appointmentTypeId,
+    }: { couponCode: string; amount: number; state?: string; appointmentTypeId?: string },
+    { rejectWithValue }
+  ) => {
     try {
       const response = await api.post('/api/patient-portal/validate-coupon', {
         couponCode,
         amount,
+        state,
+        appointmentTypeId,
       });
       return response.data;
     } catch (error: any) {

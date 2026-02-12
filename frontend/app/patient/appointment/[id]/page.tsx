@@ -8,6 +8,46 @@ import { getSubmissionByAppointment, clearError as clearIntakeError } from '@/st
 import type { AppDispatch, RootState } from '@/store/store'
 import api from '@/lib/api'
 
+const usdFormatter = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 2,
+})
+
+const asNumber = (value: any) => (typeof value === 'number' && Number.isFinite(value) ? value : null)
+
+const summarizePrice = (appointment: any) => {
+  if (!appointment) {
+    return { finalAmount: 0, originalAmount: 0, discountAmount: 0 }
+  }
+  const discountAmount = asNumber(appointment.couponDiscountAmount) || 0
+  const appointmentTypePrice =
+    typeof appointment.appointmentType === 'object'
+      ? asNumber(appointment.appointmentType?.price)
+      : null
+  const fallbackBase =
+    appointmentTypePrice ??
+    asNumber(appointment.medicalCardType?.price) ??
+    asNumber(appointment.amount) ??
+    asNumber(appointment.payment_id?.amount) ??
+    0
+
+  const finalAmount =
+    asNumber(appointment.adjustedAmount) ??
+    asNumber(appointment.payment_id?.amount) ??
+    (discountAmount > 0 ? Math.max(fallbackBase - discountAmount, 0) : fallbackBase)
+
+  const originalAmount = discountAmount > 0
+    ? Math.max((finalAmount || 0) + discountAmount, fallbackBase ?? 0)
+    : (fallbackBase || finalAmount || 0)
+
+  return {
+    finalAmount: finalAmount || 0,
+    originalAmount,
+    discountAmount,
+  }
+}
+
 export default function AppointmentDetailsPage() {
   const router = useRouter()
   const params = useParams()
@@ -75,6 +115,8 @@ export default function AppointmentDetailsPage() {
       : currentAppointment?.status
         ? currentAppointment.status.charAt(0).toUpperCase() + currentAppointment.status.slice(1)
         : 'N/A'
+
+  const { finalAmount, originalAmount, discountAmount } = summarizePrice(currentAppointment)
 
   const formatTime12Hour = (time?: string) => {
     if (!time) return 'Not scheduled'
@@ -320,16 +362,32 @@ export default function AppointmentDetailsPage() {
           </div>
 
           {/* Payment Info */}
-          {currentAppointment.payment_id && (
-            <div className="card">
-              <h2 className="text-xl font-semibold mb-4">Payment Information</h2>
-              <div className="space-y-3">
+          <div className="card">
+            <h2 className="text-xl font-semibold mb-4">Payment Information</h2>
+            <div className="space-y-3">
+              <div className="flex justify-between py-2 border-b">
+                <span className="text-gray-600">Original Price:</span>
+                <span className={`font-semibold ${discountAmount > 0 ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
+                  {usdFormatter.format(originalAmount)}
+                </span>
+              </div>
+              {discountAmount > 0 && (
                 <div className="flex justify-between py-2 border-b">
-                  <span className="text-gray-600">Amount Paid:</span>
-                  <span className="font-semibold text-green-600">
-                    ${currentAppointment.payment_id.amount}
+                  <span className="text-gray-600">Coupon Savings{currentAppointment.couponCode ? ` (${currentAppointment.couponCode})` : ''}:</span>
+                  <span className="font-semibold text-emerald-600">
+                    −{usdFormatter.format(discountAmount)}
                   </span>
                 </div>
+              )}
+              <div className="flex justify-between py-2 border-b">
+                <span className="text-gray-600">Final Amount:</span>
+                <span className="font-semibold text-gray-900">
+                  {usdFormatter.format(finalAmount)}
+                </span>
+              </div>
+            </div>
+            {currentAppointment.payment_id && (
+              <div className="mt-4 space-y-3 border-t border-gray-100 pt-3">
                 <div className="flex justify-between py-2 border-b">
                   <span className="text-gray-600">Payment Status:</span>
                   <span
@@ -350,8 +408,8 @@ export default function AppointmentDetailsPage() {
                   </span>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* Intake Status */}
           <div className="card">

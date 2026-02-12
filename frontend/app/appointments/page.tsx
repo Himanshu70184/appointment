@@ -7,6 +7,43 @@ import { getAppointments } from '@/store/slices/appointmentSlice'
 import DashboardLayout from '@/components/DashboardLayout'
 import type { AppDispatch, RootState } from '@/store/store'
 
+const usdFormatter = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 2,
+})
+
+const asNumber = (value: any) => (typeof value === 'number' && Number.isFinite(value) ? value : null)
+
+const getPriceSummary = (appointment: any) => {
+  const discountAmount = asNumber(appointment.couponDiscountAmount) || 0
+  const appointmentTypePrice =
+    typeof appointment.appointmentType === 'object'
+      ? asNumber(appointment.appointmentType?.price)
+      : null
+  const fallbackBase =
+    appointmentTypePrice ??
+    asNumber(appointment.medicalCardType?.price) ??
+    asNumber(appointment.amount) ??
+    asNumber(appointment.payment_id?.amount) ??
+    0
+
+  const finalAmount =
+    asNumber(appointment.adjustedAmount) ??
+    asNumber(appointment.payment_id?.amount) ??
+    (discountAmount > 0 ? Math.max(fallbackBase - discountAmount, 0) : fallbackBase)
+
+  const originalAmount = discountAmount > 0
+    ? Math.max((finalAmount || 0) + discountAmount, fallbackBase ?? 0)
+    : (fallbackBase || finalAmount || 0)
+
+  return {
+    finalAmount: finalAmount || 0,
+    originalAmount,
+    discountAmount,
+  }
+}
+
 export default function AppointmentsPage() {
   const dispatch = useDispatch<AppDispatch>()
   const { user } = useSelector((state: RootState) => state.auth)
@@ -452,16 +489,7 @@ export default function AppointmentsPage() {
                     ? 'bg-red-100 text-red-800'
                     : 'bg-blue-100 text-blue-800'
                   const serviceName = getServiceName(appointment)
-                  const servicePrice =
-                    appointment.adjustedAmount ??
-                    (typeof appointment.appointmentType === 'object' ? appointment.appointmentType?.price : undefined) ??
-                    appointment.medicalCardType?.price ??
-                    appointment.payment_id?.amount ??
-                    appointment.amount ??
-                    0
-                  const formattedPrice = typeof servicePrice === 'number'
-                    ? `$${servicePrice.toFixed(2)}`
-                    : 'N/A'
+                  const { finalAmount, originalAmount, discountAmount } = getPriceSummary(appointment)
 
                   return (
                   <tr key={appointment._id} className="hover:bg-gray-50">
@@ -494,7 +522,19 @@ export default function AppointmentsPage() {
                       {appointment.couponCode || '—'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {formattedPrice}
+                      <div className="font-semibold text-gray-900">
+                        {usdFormatter.format(finalAmount)}
+                      </div>
+                      {discountAmount > 0 && (
+                        <>
+                          <div className="text-xs text-gray-400 line-through">
+                            {usdFormatter.format(originalAmount)}
+                          </div>
+                          <div className="text-xs text-emerald-600">
+                            Saved {usdFormatter.format(discountAmount)}
+                          </div>
+                        </>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {appointment.createdAt

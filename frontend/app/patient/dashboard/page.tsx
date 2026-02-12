@@ -12,6 +12,43 @@ import { logout } from '@/store/slices/authSlice'
 import type { AppDispatch, RootState } from '@/store/store'
 import api from '@/lib/api'
 
+const usdFormatter = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 2,
+})
+
+const asNumber = (value: any) => (typeof value === 'number' && Number.isFinite(value) ? value : null)
+
+const summarizePrice = (appointment: any) => {
+  const discountAmount = asNumber(appointment.couponDiscountAmount) || 0
+  const appointmentTypePrice =
+    typeof appointment.appointmentType === 'object'
+      ? asNumber(appointment.appointmentType?.price)
+      : null
+  const fallbackBase =
+    appointmentTypePrice ??
+    asNumber(appointment.medicalCardType?.price) ??
+    asNumber(appointment.amount) ??
+    asNumber(appointment.payment_id?.amount) ??
+    0
+
+  const finalAmount =
+    asNumber(appointment.adjustedAmount) ??
+    asNumber(appointment.payment_id?.amount) ??
+    (discountAmount > 0 ? Math.max(fallbackBase - discountAmount, 0) : fallbackBase)
+
+  const originalAmount = discountAmount > 0
+    ? Math.max((finalAmount || 0) + discountAmount, fallbackBase ?? 0)
+    : (fallbackBase || finalAmount || 0)
+
+  return {
+    finalAmount: finalAmount || 0,
+    originalAmount,
+    discountAmount,
+  }
+}
+
 export default function PatientDashboardPage() {
   const router = useRouter()
   const dispatch = useDispatch<AppDispatch>()
@@ -261,14 +298,7 @@ export default function PatientDashboardPage() {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {appointments.map((appointment, index) => {
-                    const appointmentPrice =
-                      appointment.adjustedAmount ??
-                      (typeof appointment.appointmentType === 'object'
-                        ? appointment.appointmentType?.price
-                        : undefined) ??
-                      appointment.medicalCardType?.price ??
-                      appointment.payment_id?.amount ??
-                      0
+                    const { finalAmount, originalAmount, discountAmount } = summarizePrice(appointment)
                     const isIntakePending =
                       !appointment.intakeSubmitted &&
                       appointment.status !== 'completed' &&
@@ -303,7 +333,22 @@ export default function PatientDashboardPage() {
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap text-sm">{appointment.state}</td>
                         <td className="px-4 py-4 whitespace-nowrap text-sm font-semibold">
-                          ${appointmentPrice}
+                          <div>{usdFormatter.format(finalAmount)}</div>
+                          {discountAmount > 0 ? (
+                            <>
+                              <div className="text-xs text-gray-400 line-through">
+                                {usdFormatter.format(originalAmount)}
+                              </div>
+                              <div className="text-xs text-emerald-600">
+                                Saved {usdFormatter.format(discountAmount)}
+                                {appointment.couponCode ? ` · ${appointment.couponCode}` : ''}
+                              </div>
+                            </>
+                          ) : (
+                            <div className="text-xs text-gray-400">
+                              {appointment.couponCode ? `Code · ${appointment.couponCode}` : 'No coupon'}
+                            </div>
+                          )}
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap">
                           <span

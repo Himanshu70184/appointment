@@ -6,13 +6,13 @@ const AppointmentType = require('../models/AppointmentType');
 const Doctor = require('../models/Doctor');
 const DoctorAvailability = require('../models/DoctorAvailability');
 const User = require('../models/User');
-const Coupon = require('../models/Coupon');
 const State = require('../models/State');
 const Notification = require('../models/Notification');
 const { auth, authorize } = require('../middleware/auth');
 const { processPayment } = require('../utils/payment');
 const { sendTemplateEmail, sendWelcomeEmail } = require('../utils/email');
 const { getStateCooldownBlock, hasActiveAppointmentInState } = require('../utils/bookingCooldown');
+const { validateAndCalculateCoupon, CouponValidationError } = require('../utils/coupon');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
@@ -503,26 +503,26 @@ router.post('/book-appointment', [
     // Calculate amount with coupon discount
     let amount = appointmentType.price;
     let appliedCoupon = null;
+    let couponSavings = 0;
 
     if (couponCode) {
-      const coupon = await Coupon.findOne({ 
-        code: couponCode.toUpperCase(), 
-        isActive: true 
-      });
+      try {
+        const couponResult = await validateAndCalculateCoupon({
+          couponCode,
+          amount,
+          stateCode: state,
+          appointmentTypeId: cardType
+        });
 
-      if (coupon && new Date(coupon.validUntil) > new Date()) {
-        if (coupon.usedCount < (coupon.usageLimit || Infinity)) {
-          if (coupon.discountType === 'percentage') {
-            amount = amount * (1 - coupon.discountValue / 100);
-          } else {
-            amount = Math.max(0, amount - coupon.discountValue);
-          }
-          appliedCoupon = coupon;
-        } else {
-          return res.status(400).json({ message: 'Coupon usage limit exceeded' });
+        amount = couponResult.finalAmount;
+        appliedCoupon = couponResult.coupon;
+        couponSavings = couponResult.discountAmount;
+      } catch (couponError) {
+        if (couponError instanceof CouponValidationError) {
+          return res.status(couponError.statusCode || 400).json({ message: couponError.message });
         }
-      } else {
-        return res.status(400).json({ message: 'Invalid or expired coupon code' });
+        console.error('Coupon validation failed:', couponError);
+        return res.status(500).json({ message: 'Failed to apply coupon', error: couponError.message });
       }
     }
 
@@ -581,7 +581,9 @@ router.post('/book-appointment', [
       isMinor,
       paymentCompleted: false,
       intakeSubmitted: false,
-      couponCode: appliedCoupon ? appliedCoupon.code : undefined
+      couponCode: appliedCoupon ? appliedCoupon.code : undefined,
+      adjustedAmount: amount,
+      couponDiscountAmount: couponSavings > 0 ? couponSavings : 0
     });
 
     await appointment.save();
@@ -1301,7 +1303,9 @@ router.get('/states', async (req, res) => {
 // @access  Public
 router.post('/validate-coupon', [
   body('couponCode').notEmpty().withMessage('Coupon code is required'),
-  body('amount').isNumeric().withMessage('Amount is required')
+  body('amount').isNumeric().withMessage('Amount is required'),
+  body('state').optional().isString().isLength({ min: 2, max: 2 }).withMessage('State must be a 2-letter code'),
+  body('appointmentTypeId').optional().isMongoId().withMessage('Appointment type is invalid')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -1309,48 +1313,43 @@ router.post('/validate-coupon', [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { couponCode, amount } = req.body;
+    const { couponCode, amount, state, appointmentTypeId } = req.body;
 
-    const coupon = await Coupon.findOne({ 
-      code: couponCode.toUpperCase(), 
-      isActive: true 
-    });
+    try {
+      const couponResult = await validateAndCalculateCoupon({
+        couponCode,
+        amount,
+          stateCode: state,
+          appointmentTypeId
+      });
 
-    if (!coupon) {
-      return res.status(404).json({ message: 'Invalid coupon code' });
+      res.json({
+        success: true,
+        message: 'Coupon is valid',
+        coupon: {
+          code: couponResult.coupon.code,
+          description: couponResult.coupon.description,
+          discountType: couponResult.coupon.discountType,
+          discountValue: couponResult.coupon.discountValue,
+          maxDiscount: couponResult.coupon.maxDiscount,
+          minPurchase: couponResult.coupon.minPurchase,
+          validFrom: couponResult.coupon.validFrom,
+          validUntil: couponResult.coupon.validUntil,
+          usageLimit: couponResult.coupon.usageLimit,
+          usedCount: couponResult.coupon.usedCount,
+          applicableStates: couponResult.coupon.applicableStates
+        },
+        originalAmount: couponResult.discountAmount + couponResult.finalAmount,
+        discountAmount: couponResult.discountAmount,
+        finalAmount: couponResult.finalAmount
+      });
+    } catch (couponError) {
+      if (couponError instanceof CouponValidationError) {
+        return res.status(couponError.statusCode || 400).json({ message: couponError.message });
+      }
+      console.error('Coupon helper error:', couponError);
+      return res.status(500).json({ message: 'Failed to validate coupon', error: couponError.message });
     }
-
-    if (new Date(coupon.validUntil) < new Date()) {
-      return res.status(400).json({ message: 'Coupon has expired' });
-    }
-
-    if (coupon.usedCount >= (coupon.usageLimit || Infinity)) {
-      return res.status(400).json({ message: 'Coupon usage limit exceeded' });
-    }
-
-    let discountedAmount = amount;
-    let discountValue = 0;
-
-    if (coupon.discountType === 'percentage') {
-      discountValue = amount * (coupon.discountValue / 100);
-      discountedAmount = amount - discountValue;
-    } else {
-      discountValue = Math.min(coupon.discountValue, amount);
-      discountedAmount = Math.max(0, amount - coupon.discountValue);
-    }
-
-    res.json({
-      success: true,
-      message: 'Coupon is valid',
-      coupon: {
-        code: coupon.code,
-        discountType: coupon.discountType,
-        discountValue: coupon.discountValue
-      },
-      originalAmount: amount,
-      discountAmount: discountValue,
-      finalAmount: discountedAmount
-    });
 
   } catch (error) {
     console.error('Error validating coupon:', error);

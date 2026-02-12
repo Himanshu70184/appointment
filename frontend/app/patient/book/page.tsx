@@ -47,6 +47,19 @@ const bookingSchema = z
 
 type BookingFormData = z.infer<typeof bookingSchema>
 
+interface CouponQuote {
+  coupon: {
+    code: string
+    discountType: 'percentage' | 'fixed'
+    discountValue: number
+    maxDiscount?: number
+    minPurchase?: number
+  }
+  originalAmount: number
+  discountAmount: number
+  finalAmount: number
+}
+
 export default function PatientBookingPage() {
   const router = useRouter()
   const dispatch = useDispatch<AppDispatch>()
@@ -67,17 +80,19 @@ export default function PatientBookingPage() {
   const [showMinorFields, setShowMinorFields] = useState(false)
   const [slotsRequested, setSlotsRequested] = useState(false)
   const [couponCode, setCouponCode] = useState('')
-  const [couponData, setCouponData] = useState<any>(null)
+  const [couponData, setCouponData] = useState<CouponQuote | null>(null)
   const [finalAmount, setFinalAmount] = useState(0)
   const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(
     null
   )
   const isRescheduleOnly = Boolean(paidAppointmentId)
+  const selectedAppointmentType = appointmentTypes.find((type) => type._id === selectedCardType)
 
   const appointmentDatePickerRef = useRef<HTMLInputElement | null>(null)
   const dobPickerRef = useRef<HTMLInputElement | null>(null)
   const slotFetchTimerRef = useRef<number | null>(null)
   const lastSlotRequestRef = useRef('')
+  const lastStateRef = useRef('')
 
   const {
     register,
@@ -99,6 +114,19 @@ export default function PatientBookingPage() {
   useEffect(() => {
     fetchAppointmentTypes()
   }, [selectedState])
+
+  useEffect(() => {
+    if (couponData) {
+      setFinalAmount(Number(couponData.finalAmount.toFixed(2)))
+      return
+    }
+
+    if (selectedAppointmentType) {
+      setFinalAmount(selectedAppointmentType.price)
+    } else {
+      setFinalAmount(0)
+    }
+  }, [couponData, selectedAppointmentType])
 
   useEffect(() => {
     setSelectedSlot(null)
@@ -200,6 +228,23 @@ export default function PatientBookingPage() {
       setShowMinorFields(isMinor)
     }
   }, [dateOfBirth])
+
+  useEffect(() => {
+    if (!couponData) {
+      lastStateRef.current = selectedState
+      return
+    }
+
+    if (lastStateRef.current && selectedState && lastStateRef.current !== selectedState) {
+      setCouponData(null)
+      if (selectedAppointmentType) {
+        setFinalAmount(selectedAppointmentType.price)
+      }
+      showToast('info', 'State changed. Please re-apply your coupon.')
+    }
+
+    lastStateRef.current = selectedState
+  }, [selectedState, couponData, selectedAppointmentType])
 
   useEffect(() => {
     if (error) {
@@ -325,22 +370,47 @@ export default function PatientBookingPage() {
   }
 
   const handleCouponValidation = async () => {
-    if (!couponCode) return
+    if (!couponCode.trim()) {
+      showToast('error', 'Enter a coupon code to continue')
+      return
+    }
 
-    const appointmentType = appointmentTypes.find((c) => c._id === selectedCardType)
-    if (!appointmentType) return
+    if (!selectedState) {
+      showToast('error', 'Select your state before applying a coupon')
+      return
+    }
+
+    if (!selectedAppointmentType) {
+      showToast('error', 'Choose an appointment type before applying a coupon')
+      return
+    }
+
+    const formattedCode = couponCode.trim().toUpperCase()
+    setCouponCode(formattedCode)
 
     try {
-      const result = await dispatch(
-        validateCoupon({ couponCode, amount: appointmentType.price })
-      ).unwrap()
+      const result = (await dispatch(
+        validateCoupon({
+          couponCode: formattedCode,
+          amount: selectedAppointmentType.price,
+          state: selectedState,
+          appointmentTypeId: selectedCardType,
+        })
+      ).unwrap()) as CouponQuote
       setCouponData(result)
-      setFinalAmount(result.finalAmount)
-      showToast('success', `Coupon applied! You save $${result.discountAmount.toFixed(2)}`)
+      setFinalAmount(Number(result.finalAmount.toFixed(2)))
+      showToast(
+        'success',
+        `${result.coupon.code} applied! You save $${result.discountAmount.toFixed(2)}`
+      )
     } catch (couponError: any) {
-      showToast('error', couponError.message || 'Invalid coupon code')
+      const messageText =
+        typeof couponError === 'string'
+          ? couponError
+          : couponError?.message || 'Invalid or ineligible coupon code'
+      showToast('error', formatEligibleDateMessage(messageText))
       setCouponData(null)
-      setFinalAmount(appointmentType.price)
+      setFinalAmount(selectedAppointmentType.price)
     }
   }
 
@@ -452,6 +522,10 @@ export default function PatientBookingPage() {
                       if (isRescheduleOnly) return
                       setSelectedCardType(type._id)
                       setFinalAmount(type.price)
+                      if (couponData) {
+                        setCouponData(null)
+                        showToast('info', 'Appointment type changed. Re-apply your coupon for the new price.')
+                      }
                     }}
                     className={`p-4 border-2 rounded-lg cursor-pointer transition-colors ${
                       selectedCardType === type._id
@@ -623,8 +697,20 @@ export default function PatientBookingPage() {
               {selectedSlot ? formatTimeRange(selectedSlot, slotDuration) : '—'}
             </span>
           </div>
+          <div className="flex justify-between border-t pt-2 mt-2 text-sm">
+            <span className="text-gray-600">Base price:</span>
+            <span className="font-semibold text-gray-900">
+              {selectedAppointmentType ? `$${selectedAppointmentType.price.toFixed(2)}` : '—'}
+            </span>
+          </div>
+          {couponData && (
+            <div className="flex justify-between text-sm text-emerald-600">
+              <span>Coupon ({couponData.coupon.code})</span>
+              <span>- ${couponData.discountAmount.toFixed(2)}</span>
+            </div>
+          )}
           <div className="flex justify-between border-t pt-2 mt-2">
-            <span className="text-gray-600">Amount:</span>
+            <span className="text-gray-600">Total due today:</span>
             <span className="font-semibold text-lg text-blue-600">${finalAmount.toFixed(2)}</span>
           </div>
         </div>
@@ -752,7 +838,13 @@ export default function PatientBookingPage() {
         <div className="flex gap-2">
           <input
             value={couponCode}
-            onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+            onChange={(e) => {
+              setCouponCode(e.target.value.toUpperCase())
+              if (couponData && selectedAppointmentType) {
+                setCouponData(null)
+                setFinalAmount(selectedAppointmentType.price)
+              }
+            }}
             placeholder="Enter coupon code"
             className="input flex-1"
           />
