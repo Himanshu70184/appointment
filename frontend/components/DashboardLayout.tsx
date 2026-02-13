@@ -58,6 +58,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     { icon: '📝', label: 'Intake Forms', href: '/intake-forms', roles: [1, 4] },
     { icon: '👤', label: 'Leads', href: '/leads', roles: [1, 4] },
     { icon: '⚙️', label: 'Setting', href: '/settings', roles: [1, 3, 4] },
+    { icon: '🔔', label: 'Notifications', href: '/notifications', roles: [1, 4] },
     
     // Doctor menu items
     { icon: '📊', label: 'Dashboard', href: '/doctor/dashboard', roles: [2] },

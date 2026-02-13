@@ -16,6 +16,7 @@ const { sendAppointmentNotification, sendTemplateEmail } = require('../utils/ema
 const { paginate, parseSortParam } = require('../utils/pagination');
 const { getStateCooldownBlock, hasActiveAppointmentInState } = require('../utils/bookingCooldown');
 const { validateAndCalculateCoupon, CouponValidationError } = require('../utils/coupon');
+const { sendAppointmentScheduledNotifications } = require('../utils/notifications');
 
 const router = express.Router();
 
@@ -657,10 +658,14 @@ router.post('/:id/intake', [
       return res.status(404).json({ message: 'Appointment not found' });
     }
 
+    const wasScheduled = appointment.status === 'scheduled';
+
     const { intakeForm } = req.body;
     const parsedIntakeForm = typeof intakeForm === 'string' ? JSON.parse(intakeForm) : intakeForm;
 
     appointment.intakeForm = parsedIntakeForm;
+    appointment.intakeSubmitted = true;
+    appointment.intakeSubmittedAt = new Date();
 
     // Handle file uploads
     const documents = [];
@@ -707,6 +712,10 @@ router.post('/:id/intake', [
 
     // Assign doctor
     await assignDoctor(appointment);
+
+    if (!wasScheduled && appointment.status === 'scheduled') {
+      await sendAppointmentScheduledNotifications(appointment);
+    }
 
     // Update user profile with DOB and guardian info if provided
     if (parsedIntakeForm.dateOfBirth) {
@@ -933,11 +942,16 @@ router.put('/:id/status', [
       return res.status(404).json({ message: 'Appointment not found' });
     }
 
+    const previousStatus = appointment.status;
     appointment.status = req.body.status;
     if (req.body.status === 'completed') {
       appointment.completedAt = new Date();
     }
     await appointment.save();
+
+    if (previousStatus !== 'scheduled' && appointment.status === 'scheduled') {
+      await sendAppointmentScheduledNotifications(appointment);
+    }
 
     // Create notification
     await Notification.create({
@@ -1047,11 +1061,17 @@ router.post('/:id/approve-guardian', auth, authorize(1, 4), async (req, res) => 
       return res.status(400).json({ message: 'This appointment is not for a minor' });
     }
 
+    const wasScheduled = appointment.status === 'scheduled';
+
     appointment.guardianApproved = true;
     appointment.guardianApprovedBy = req.user._id;
     appointment.guardianApprovedAt = new Date();
     appointment.status = 'scheduled';
     await appointment.save();
+
+    if (!wasScheduled && appointment.status === 'scheduled') {
+      await sendAppointmentScheduledNotifications(appointment);
+    }
 
     // Create notification
     await Notification.create({

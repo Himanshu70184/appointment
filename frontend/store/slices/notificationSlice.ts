@@ -1,5 +1,6 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit'
 import api from '@/lib/api'
+import type { RootState } from '@/store/store'
 
 interface Notification {
   _id: string;
@@ -8,6 +9,11 @@ interface Notification {
   type: string;
   isRead: boolean;
   createdAt: string;
+}
+
+type ApiNotification = Omit<Notification, 'isRead'> & {
+  isRead?: boolean;
+  read?: boolean;
 }
 
 interface NotificationState {
@@ -26,8 +32,12 @@ const initialState: NotificationState = {
 
 export const fetchNotifications = createAsyncThunk('notifications/fetchAll', async (_, { rejectWithValue }) => {
   try {
-    const response = await api.get('/api/admin/notifications')
-    return response.data.notifications
+    const response = await api.get('/api/notifications')
+    const notifications = (response.data?.notifications || []).map((notification: ApiNotification) => ({
+      ...notification,
+      isRead: typeof notification.isRead === 'boolean' ? notification.isRead : Boolean(notification.read),
+    }))
+    return notifications
   } catch (error: any) {
     return rejectWithValue(error.response?.data?.message || 'Failed to fetch notifications')
   }
@@ -35,7 +45,7 @@ export const fetchNotifications = createAsyncThunk('notifications/fetchAll', asy
 
 export const markAsReadAsync = createAsyncThunk('notifications/markAsRead', async (id: string, { rejectWithValue }) => {
   try {
-    await api.put(`/api/admin/notifications/${id}/read`)
+    await api.put(`/api/notifications/${id}/read`)
     return id
   } catch (error: any) {
     return rejectWithValue(error.response?.data?.message || 'Failed to mark as read')
@@ -44,7 +54,7 @@ export const markAsReadAsync = createAsyncThunk('notifications/markAsRead', asyn
 
 export const markAllAsRead = createAsyncThunk('notifications/markAllAsRead', async (_, { rejectWithValue }) => {
   try {
-    await api.put('/api/admin/notifications/mark-all-read')
+    await api.put('/api/notifications/mark-all-read')
     return true
   } catch (error: any) {
     return rejectWithValue(error.response?.data?.message || 'Failed to mark all as read')
@@ -101,9 +111,9 @@ const notificationSlice = createSlice({
 export const { setNotifications, markAsRead } = notificationSlice.actions
 
 // Selectors
-export const selectNotifications = (state: any) => state.notifications.notifications
-export const selectUnreadCount = (state: any) => state.notifications.unreadCount
-export const selectNotificationsLoading = (state: any) => state.notifications.loading
-export const selectNotificationsError = (state: any) => state.notifications.error
+export const selectNotifications = (state: RootState) => state.notifications.notifications
+export const selectUnreadCount = (state: RootState) => state.notifications.unreadCount
+export const selectNotificationsLoading = (state: RootState) => state.notifications.loading
+export const selectNotificationsError = (state: RootState) => state.notifications.error
 
 export default notificationSlice.reducer

@@ -13,6 +13,7 @@ const { processPayment } = require('../utils/payment');
 const { sendTemplateEmail, sendWelcomeEmail } = require('../utils/email');
 const { getStateCooldownBlock, hasActiveAppointmentInState } = require('../utils/bookingCooldown');
 const { validateAndCalculateCoupon, CouponValidationError } = require('../utils/coupon');
+const { sendAppointmentScheduledNotifications } = require('../utils/notifications');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
@@ -723,6 +724,8 @@ router.get('/check-intake-eligibility/:appointmentId', auth, authorize('patient'
       return res.status(404).json({ message: 'Appointment not found' });
     }
 
+    const wasScheduled = appointment.status === 'scheduled';
+
     // Verify patient owns this appointment
     const appointmentPatientId = appointment.patient_id?._id || appointment.patient_id;
     const isOwnerById = appointmentPatientId && appointmentPatientId.toString() === req.user._id.toString();
@@ -843,6 +846,10 @@ router.post('/submit-intake/:appointmentId', [
       appointment.status = appointment.isMinor ? 'approval' : 'scheduled';
     }
     await appointment.save();
+
+    if (!wasScheduled && appointment.status === 'scheduled') {
+      await sendAppointmentScheduledNotifications(appointment);
+    }
 
     // Send notification email to admin/doctor
     try {

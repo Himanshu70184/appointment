@@ -223,6 +223,7 @@ export interface Notification {
   title: string
   message: string
   isRead: boolean
+  read?: boolean
   createdAt: string
 }
 

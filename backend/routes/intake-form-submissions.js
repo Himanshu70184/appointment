@@ -12,6 +12,7 @@ const User = require('../models/User');
 const { createLogger, asyncHandler } = require('../utils/logger');
 const { NotFoundError } = require('../utils/errorResponse');
 const { generateIntakeFormPDF } = require('../utils/pdfGenerator');
+const { sendAppointmentScheduledNotifications } = require('../utils/notifications');
 
 const router = express.Router();
 const logger = createLogger('IntakeFormSubmissions');
@@ -114,6 +115,8 @@ router.post('/', [auth, handleUpload], asyncHandler(async (req, res) => {
   if (!appointment) {
     return res.status(404).json({ message: 'Appointment not found' });
   }
+
+  const wasScheduled = appointment.status === 'scheduled';
 
   const isPatient = req.user.role_id === 3;
   const isAdminOrStaff = req.user.role_id === 1 || req.user.role_id === 4;
@@ -230,6 +233,10 @@ router.post('/', [auth, handleUpload], asyncHandler(async (req, res) => {
         appointment.status = appointment.isMinor ? 'approval' : 'scheduled';
       }
       await appointment.save();
+
+      if (!wasScheduled && appointment.status === 'scheduled') {
+        await sendAppointmentScheduledNotifications(appointment);
+      }
     } catch (error) {
       logger.error('PDF generation failed', { error: error.message });
       // Continue even if PDF generation fails
