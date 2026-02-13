@@ -36,6 +36,37 @@ const resolveUserId = (value) => {
   return value;
 };
 
+const formatReason = (value) => {
+  if (!value) return 'No reason was provided.';
+  const trimmed = `${value}`.trim();
+  return trimmed.length ? trimmed : 'No reason was provided.';
+};
+
+const normalizeInitiatorRole = (role) => {
+  switch (role) {
+    case 'patient':
+    case 'doctor':
+    case 'admin':
+    case 'staff':
+      return role;
+    case 1:
+      return 'admin';
+    case 2:
+      return 'doctor';
+    case 3:
+      return 'patient';
+    case 4:
+      return 'staff';
+    default:
+      return 'system';
+  }
+};
+
+const capitalize = (value) => {
+  if (!value || typeof value !== 'string') return '';
+  return value.charAt(0).toUpperCase() + value.slice(1);
+};
+
 const sendAppointmentScheduledNotifications = async (appointmentInput) => {
   try {
     const appointment =
@@ -103,6 +134,283 @@ const sendAppointmentScheduledNotifications = async (appointmentInput) => {
   }
 };
 
+const sendAppointmentCancellationNotifications = async ({
+  appointmentInput,
+  initiatorRole = 'system',
+  reason
+} = {}) => {
+  try {
+    const appointment =
+      typeof appointmentInput === 'object' && appointmentInput !== null
+        ? appointmentInput
+        : await Appointment.findById(appointmentInput);
+
+    if (!appointment) {
+      return;
+    }
+
+    const normalizedInitiator = normalizeInitiatorRole(initiatorRole);
+    const patientId = resolveUserId(appointment.patient_id);
+    const doctorId = resolveUserId(appointment.doctor_id);
+
+    const [patientUser, doctorUser, adminStaffUsers] = await Promise.all([
+      patientId ? User.findById(patientId).select('firstName lastName name role_id') : null,
+      doctorId ? User.findById(doctorId).select('firstName lastName name role_id') : null,
+      User.find({ role_id: { $in: [1, 4] } }).select('_id role_id firstName lastName name')
+    ]);
+
+    const { dateLabel, timeLabel } = formatScheduleWindow(appointment);
+    const patientName = formatDisplayName(patientUser);
+    const reasonText = formatReason(reason || appointment.cancelReason);
+    const initiatorLabel = capitalize(normalizedInitiator);
+
+    const notifications = [];
+
+    if (patientUser) {
+      const patientMessage = normalizedInitiator === 'patient'
+        ? `You cancelled your appointment scheduled for ${dateLabel} at ${timeLabel}. Reason: ${reasonText}`
+        : `Your appointment scheduled for ${dateLabel} at ${timeLabel} was cancelled by ${initiatorLabel}. Reason: ${reasonText}`;
+
+      notifications.push({
+        user_id: patientUser._id,
+        type: 'appointment',
+        title: 'Appointment Cancelled',
+        message: patientMessage,
+        related_id: appointment._id
+      });
+    }
+
+    if (doctorUser) {
+      const doctorMessage = normalizedInitiator === 'patient'
+        ? `${patientName} cancelled their appointment scheduled for ${dateLabel} at ${timeLabel}. Reason: ${reasonText}`
+        : `${patientName}'s appointment scheduled for ${dateLabel} at ${timeLabel} was cancelled by ${initiatorLabel}. Reason: ${reasonText}`;
+
+      notifications.push({
+        user_id: doctorUser._id,
+        type: 'appointment',
+        title: 'Appointment Cancelled',
+        message: doctorMessage,
+        related_id: appointment._id
+      });
+    }
+
+    if (adminStaffUsers && adminStaffUsers.length) {
+      adminStaffUsers.forEach((user) => {
+        const adminMessage = normalizedInitiator === 'patient'
+          ? `${patientName} cancelled their appointment scheduled for ${dateLabel} at ${timeLabel}. Reason: ${reasonText}`
+          : `${initiatorLabel} cancelled ${patientName}'s appointment scheduled for ${dateLabel} at ${timeLabel}. Reason: ${reasonText}`;
+
+        notifications.push({
+          user_id: user._id,
+          type: 'appointment',
+          title: 'Appointment Cancelled',
+          message: adminMessage,
+          related_id: appointment._id
+        });
+      });
+    }
+
+    if (notifications.length) {
+      await Notification.insertMany(notifications);
+    }
+  } catch (error) {
+    console.error('Failed to dispatch cancellation notifications:', error);
+  }
+};
+
+const sendPendingIntakeNotifications = async ({ appointmentInput } = {}) => {
+  try {
+    const appointment =
+      typeof appointmentInput === 'object' && appointmentInput !== null
+        ? appointmentInput
+        : await Appointment.findById(appointmentInput);
+
+    if (!appointment) {
+      return;
+    }
+
+    if (!appointment.paymentCompleted || appointment.intakeSubmitted) {
+      return;
+    }
+
+    const patientId = resolveUserId(appointment.patient_id);
+    const doctorId = resolveUserId(appointment.doctor_id);
+
+    const [patientUser, doctorUser] = await Promise.all([
+      patientId ? User.findById(patientId).select('firstName lastName name role_id') : null,
+      doctorId ? User.findById(doctorId).select('firstName lastName name role_id') : null
+    ]);
+
+    const { dateLabel, timeLabel } = formatScheduleWindow(appointment);
+    const patientName = formatDisplayName(patientUser);
+
+    const notifications = [];
+
+    if (patientUser) {
+      notifications.push({
+        user_id: patientUser._id,
+        type: 'appointment',
+        title: 'Complete Intake Form',
+        message: `Payment received for ${dateLabel} at ${timeLabel}. Complete your intake form to keep the booking moving.`,
+        related_id: appointment._id
+      });
+    }
+
+    if (doctorUser) {
+      notifications.push({
+        user_id: doctorUser._id,
+        type: 'appointment',
+        title: 'Pending Intake',
+        message: `${patientName} has a booking for ${dateLabel} at ${timeLabel} with intake still pending.`,
+        related_id: appointment._id
+      });
+    }
+
+    if (notifications.length) {
+      await Notification.insertMany(notifications);
+    }
+  } catch (error) {
+    console.error('Failed to dispatch pending intake notifications:', error);
+  }
+};
+
+const sendAdminApprovalRequiredNotifications = async ({ appointmentInput } = {}) => {
+  try {
+    const appointment =
+      typeof appointmentInput === 'object' && appointmentInput !== null
+        ? appointmentInput
+        : await Appointment.findById(appointmentInput);
+
+    if (!appointment) {
+      return;
+    }
+
+    const patientId = resolveUserId(appointment.patient_id);
+
+    const [patientUser, adminStaffUsers] = await Promise.all([
+      patientId ? User.findById(patientId).select('firstName lastName name role_id') : null,
+      User.find({ role_id: { $in: [1, 4] } }).select('_id role_id firstName lastName name')
+    ]);
+
+    if (!patientUser && (!adminStaffUsers || !adminStaffUsers.length)) {
+      return;
+    }
+
+    const { dateLabel, timeLabel } = formatScheduleWindow(appointment);
+    const patientName = formatDisplayName(patientUser);
+
+    const notifications = [];
+
+    if (patientUser) {
+      notifications.push({
+        user_id: patientUser._id,
+        type: 'appointment',
+        title: 'Awaiting Admin Approval',
+        message: `Your appointment for ${dateLabel} at ${timeLabel} needs admin approval before it can be scheduled. We'll notify you once it's approved.`,
+        related_id: appointment._id
+      });
+    }
+
+    if (adminStaffUsers && adminStaffUsers.length) {
+      adminStaffUsers.forEach((user) => {
+        notifications.push({
+          user_id: user._id,
+          type: 'appointment',
+          title: 'Approval Required',
+          message: `${patientName}'s appointment for ${dateLabel} at ${timeLabel} requires admin approval before scheduling.`,
+          related_id: appointment._id
+        });
+      });
+    }
+
+    if (notifications.length) {
+      await Notification.insertMany(notifications);
+    }
+  } catch (error) {
+    console.error('Failed to dispatch admin approval notifications:', error);
+  }
+};
+
+const sendAppointmentCompletedNotifications = async ({
+  appointmentInput,
+  completedByRole = 'system',
+  completedByName
+} = {}) => {
+  try {
+    const appointment =
+      typeof appointmentInput === 'object' && appointmentInput !== null
+        ? appointmentInput
+        : await Appointment.findById(appointmentInput);
+
+    if (!appointment) {
+      return;
+    }
+
+    const normalizedRole = normalizeInitiatorRole(completedByRole);
+    const patientId = resolveUserId(appointment.patient_id);
+    const doctorId = resolveUserId(appointment.doctor_id);
+
+    const [patientUser, doctorUser, adminStaffUsers] = await Promise.all([
+      patientId ? User.findById(patientId).select('firstName lastName name role_id') : null,
+      doctorId ? User.findById(doctorId).select('firstName lastName name role_id') : null,
+      User.find({ role_id: { $in: [1, 4] } }).select('_id role_id firstName lastName name')
+    ]);
+
+    const { dateLabel, timeLabel } = formatScheduleWindow(appointment);
+    const patientName = formatDisplayName(patientUser);
+    const doctorName = formatDisplayName(doctorUser);
+    const doctorSegment = doctorUser ? ` with ${doctorName}` : '';
+    const actorLabelInput = completedByName && completedByName.trim().length ? completedByName.trim() : '';
+    const roleLabel = normalizedRole !== 'system' ? capitalize(normalizedRole) : '';
+    const actorLabel = actorLabelInput || roleLabel;
+    const confirmationSuffix = actorLabel ? ` Confirmed by ${actorLabel}.` : '';
+
+    const notifications = [];
+
+    if (patientUser) {
+      notifications.push({
+        user_id: patientUser._id,
+        type: 'appointment',
+        title: 'Appointment Completed',
+        message: `Your appointment on ${dateLabel} at ${timeLabel}${doctorSegment} has been completed.${confirmationSuffix}`.trim(),
+        related_id: appointment._id
+      });
+    }
+
+    if (doctorUser) {
+      notifications.push({
+        user_id: doctorUser._id,
+        type: 'appointment',
+        title: 'Appointment Completed',
+        message: `${patientName}'s appointment on ${dateLabel} at ${timeLabel} has been completed.${confirmationSuffix}`.trim(),
+        related_id: appointment._id
+      });
+    }
+
+    if (adminStaffUsers && adminStaffUsers.length) {
+      adminStaffUsers.forEach((user) => {
+        notifications.push({
+          user_id: user._id,
+          type: 'appointment',
+          title: 'Appointment Completed',
+          message: `${patientName}'s appointment on ${dateLabel} at ${timeLabel} has been completed.${confirmationSuffix}`.trim(),
+          related_id: appointment._id
+        });
+      });
+    }
+
+    if (notifications.length) {
+      await Notification.insertMany(notifications);
+    }
+  } catch (error) {
+    console.error('Failed to dispatch completion notifications:', error);
+  }
+};
+
 module.exports = {
-  sendAppointmentScheduledNotifications
+  sendAppointmentScheduledNotifications,
+  sendAppointmentCancellationNotifications,
+  sendPendingIntakeNotifications,
+  sendAppointmentCompletedNotifications,
+  sendAdminApprovalRequiredNotifications
 };

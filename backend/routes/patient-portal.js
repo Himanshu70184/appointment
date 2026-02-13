@@ -13,7 +13,12 @@ const { processPayment } = require('../utils/payment');
 const { sendTemplateEmail, sendWelcomeEmail } = require('../utils/email');
 const { getStateCooldownBlock, hasActiveAppointmentInState } = require('../utils/bookingCooldown');
 const { validateAndCalculateCoupon, CouponValidationError } = require('../utils/coupon');
-const { sendAppointmentScheduledNotifications } = require('../utils/notifications');
+const {
+  sendAppointmentScheduledNotifications,
+  sendAppointmentCancellationNotifications,
+  sendPendingIntakeNotifications,
+  sendAdminApprovalRequiredNotifications
+} = require('../utils/notifications');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
@@ -604,6 +609,7 @@ router.post('/book-appointment', [
       // Update appointment with payment info
       appointment.payment_id = payment._id;
       appointment.paymentCompleted = true;
+      appointment.paymentCompletedAt = new Date();
       
       // Keep pending until intake form is submitted
       // After intake submission: adults -> scheduled, minors -> approval
@@ -657,6 +663,11 @@ router.post('/book-appointment', [
         token,
         isNewUser
       });
+    }
+
+    await sendPendingIntakeNotifications({ appointmentInput: appointment });
+    if (appointment.isMinor) {
+      await sendAdminApprovalRequiredNotifications({ appointmentInput: appointment });
     }
 
     // Send confirmation email
@@ -1126,12 +1137,10 @@ router.put('/appointments/:id/cancel', [
     appointment.cancelReason = reason;
     await appointment.save();
 
-    await Notification.create({
-      user_id: appointment.patient_id._id,
-      type: 'appointment',
-      title: 'Appointment Cancelled',
-      message: 'Your appointment has been cancelled.',
-      related_id: appointment._id
+    await sendAppointmentCancellationNotifications({
+      appointmentInput: appointment,
+      initiatorRole: 'patient',
+      reason
     });
 
     res.json({ message: 'Appointment cancelled', appointment });

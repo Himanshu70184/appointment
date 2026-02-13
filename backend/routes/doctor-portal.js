@@ -5,6 +5,7 @@ const Appointment = require('../models/Appointment');
 const Doctor = require('../models/Doctor');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
+const { sendAppointmentCompletedNotifications } = require('../utils/notifications');
 
 const router = express.Router();
 
@@ -206,6 +207,12 @@ router.put('/appointments/:id/certify', [auth, authorize('doctor')], async (req,
     appointment.status = 'completed';
     await appointment.save();
 
+    await sendAppointmentCompletedNotifications({
+      appointmentInput: appointment,
+      completedByRole: 'doctor',
+      completedByName: req.user.name || req.user.email || ''
+    });
+
     // Create notification for patient
     await Notification.create({
       user_id: appointment.patient_id,
@@ -355,16 +362,25 @@ router.put('/appointments/:id/status', [
     }
 
     const oldStatus = appointment.status;
-    appointment.status = req.body.status;
+    const newStatus = req.body.status;
+    appointment.status = newStatus;
     await appointment.save();
 
-    // Create notification for patient
-    await Notification.create({
-      user_id: appointment.patient_id,
-      title: 'Appointment Status Updated',
-      message: `Your appointment status has been changed from ${oldStatus} to ${req.body.status}`,
-      type: 'status_change'
-    });
+    if (newStatus === 'completed') {
+      await sendAppointmentCompletedNotifications({
+        appointmentInput: appointment,
+        completedByRole: 'doctor',
+        completedByName: req.user.name || req.user.email || ''
+      });
+    } else {
+      // Create notification for patient
+      await Notification.create({
+        user_id: appointment.patient_id,
+        title: 'Appointment Status Updated',
+        message: `Your appointment status has been changed from ${oldStatus} to ${newStatus}`,
+        type: 'status_change'
+      });
+    }
 
     res.json({
       message: 'Appointment status updated successfully',

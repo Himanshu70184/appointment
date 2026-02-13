@@ -16,9 +16,32 @@ const { sendAppointmentNotification, sendTemplateEmail } = require('../utils/ema
 const { paginate, parseSortParam } = require('../utils/pagination');
 const { getStateCooldownBlock, hasActiveAppointmentInState } = require('../utils/bookingCooldown');
 const { validateAndCalculateCoupon, CouponValidationError } = require('../utils/coupon');
-const { sendAppointmentScheduledNotifications } = require('../utils/notifications');
+const {
+  sendAppointmentScheduledNotifications,
+  sendAppointmentCancellationNotifications,
+  sendPendingIntakeNotifications,
+  sendAppointmentCompletedNotifications,
+  sendAdminApprovalRequiredNotifications
+} = require('../utils/notifications');
 
 const router = express.Router();
+
+const CANCELLATION_STATUSES = ['cancelled', 'canceled'];
+
+const resolveInitiatorRole = (roleId) => {
+  switch (roleId) {
+    case 1:
+      return 'admin';
+    case 2:
+      return 'doctor';
+    case 3:
+      return 'patient';
+    case 4:
+      return 'staff';
+    default:
+      return 'system';
+  }
+};
 
 
 const addIntakePendingFlag = (appointment) => {
@@ -220,8 +243,6 @@ router.post('/admin-book', [
       notes
     } = req.body;
 
-    const normalizedEmail = email.trim().toLowerCase();
-
     // Verify patient exists
     const patient = await User.findById(patient_id);
     if (!patient || patient.role_id !== 3) {
@@ -251,10 +272,13 @@ router.post('/admin-book', [
       status: 'pending',
       notes: notes || '',
       bookedBy: req.user._id, // Track who created this booking
-      requiresApproval: true
+      requiresApproval: true,
+      isMinor: Boolean(patient.isMinor)
     });
 
     await appointment.save();
+
+    await sendAdminApprovalRequiredNotifications({ appointmentInput: appointment });
 
     // Create notification for patient
     await Notification.create({
@@ -471,14 +495,8 @@ router.post('/admin-book-patient', [
       bookedByAdminName: req.user.name
     });
 
-    // Create notification for patient
-    await Notification.create({
-      user_id: user._id,
-      type: 'appointment',
-      title: 'Appointment Pending Intake',
-      message: `Your appointment for ${new Date(scheduledDate).toLocaleDateString()} at ${scheduledTime} is pending intake form completion.`,
-      related_id: appointment._id
-    });
+    await sendPendingIntakeNotifications({ appointmentInput: appointment });
+    await sendAdminApprovalRequiredNotifications({ appointmentInput: appointment });
 
     // Create notification for admin/staff who created it
     await Notification.create({
@@ -587,7 +605,8 @@ router.post('/', [
       status: 'pending',
       couponCode: appliedCoupon ? appliedCoupon.code : undefined,
       adjustedAmount: amount,
-      couponDiscountAmount: couponSavings > 0 ? couponSavings : 0
+      couponDiscountAmount: couponSavings > 0 ? couponSavings : 0,
+      isMinor: Boolean(req.user.isMinor)
     });
 
     await appointment.save();
@@ -607,8 +626,10 @@ router.post('/', [
       return res.status(400).json({ message: paymentError.message || 'Payment failed' });
     }
 
-    // Update appointment with payment ID
+    // Update appointment with payment info
     appointment.payment_id = payment._id;
+    appointment.paymentCompleted = true;
+    appointment.paymentCompletedAt = new Date();
     await appointment.save();
 
     if (appliedCoupon) {
@@ -616,14 +637,10 @@ router.post('/', [
       await appliedCoupon.save();
     }
 
-    // Create notification
-    await Notification.create({
-      user_id: req.user._id,
-      type: 'appointment',
-      title: 'Appointment Created',
-      message: 'Your appointment has been created. Please complete the intake form.',
-      related_id: appointment._id
-    });
+    await sendPendingIntakeNotifications({ appointmentInput: appointment });
+    if (appointment.isMinor) {
+      await sendAdminApprovalRequiredNotifications({ appointmentInput: appointment });
+    }
 
     res.status(201).json({
       message: 'Appointment created successfully',
@@ -927,7 +944,8 @@ router.get('/:id', auth, async (req, res) => {
 router.put('/:id/status', [
   auth,
   authorize('admin', 'staff'),
-  body('status').isIn(['pending', 'scheduled', 'need_admin_approval', 'completed', 'canceled', 'rescheduled'])
+  body('status').isIn(['pending', 'scheduled', 'need_admin_approval', 'completed', 'canceled', 'cancelled', 'rescheduled']),
+  body('reason').optional().isString().trim().isLength({ min: 1 }).withMessage('Reason cannot be empty')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -942,10 +960,22 @@ router.put('/:id/status', [
       return res.status(404).json({ message: 'Appointment not found' });
     }
 
+    const { status, reason } = req.body;
+    const normalizedStatus = status === 'canceled' ? 'cancelled' : status;
+    const isCancellation = CANCELLATION_STATUSES.includes(status) || normalizedStatus === 'cancelled';
+    const trimmedReason = reason ? reason.trim() : '';
+
+    if (isCancellation && !trimmedReason) {
+      return res.status(400).json({ message: 'Cancellation reason is required' });
+    }
+
     const previousStatus = appointment.status;
-    appointment.status = req.body.status;
-    if (req.body.status === 'completed') {
+    appointment.status = normalizedStatus;
+    if (normalizedStatus === 'completed') {
       appointment.completedAt = new Date();
+    }
+    if (isCancellation) {
+      appointment.cancelReason = trimmedReason || appointment.cancelReason;
     }
     await appointment.save();
 
@@ -953,17 +983,31 @@ router.put('/:id/status', [
       await sendAppointmentScheduledNotifications(appointment);
     }
 
-    // Create notification
-    await Notification.create({
-      user_id: appointment.patient_id._id,
-      type: 'appointment',
-      title: 'Appointment Status Updated',
-      message: `Your appointment status has been updated to ${req.body.status}`,
-      related_id: appointment._id
-    });
+    if (isCancellation) {
+      await sendAppointmentCancellationNotifications({
+        appointmentInput: appointment,
+        initiatorRole: resolveInitiatorRole(req.user.role_id),
+        reason: trimmedReason || appointment.cancelReason
+      });
+    } else if (normalizedStatus === 'completed') {
+      await sendAppointmentCompletedNotifications({
+        appointmentInput: appointment,
+        completedByRole: resolveInitiatorRole(req.user.role_id),
+        completedByName: req.user.name || req.user.email || ''
+      });
+    } else {
+      await Notification.create({
+        user_id: appointment.patient_id._id,
+        type: 'appointment',
+        title: 'Appointment Status Updated',
+        message: `Your appointment status has been updated to ${normalizedStatus}`,
+        related_id: appointment._id
+      });
+    }
 
     // Send email notification
-    await sendAppointmentNotification(appointment.patient_id, appointment, req.body.status);
+    const emailStatus = normalizedStatus === 'cancelled' ? 'canceled' : normalizedStatus;
+    await sendAppointmentNotification(appointment.patient_id, appointment, emailStatus);
 
     res.json({
       message: 'Appointment status updated',
@@ -1150,13 +1194,10 @@ router.put('/:id/complete', auth, authorize(1, 2), async (req, res) => {
     appointment.completedAt = new Date();
     await appointment.save();
 
-    // Create notification
-    await Notification.create({
-      user_id: appointment.patient_id._id,
-      type: 'appointment',
-      title: 'Appointment Completed',
-      message: 'Your appointment has been marked as completed',
-      related_id: appointment._id
+    await sendAppointmentCompletedNotifications({
+      appointmentInput: appointment,
+      completedByRole: resolveInitiatorRole(req.user.role_id),
+      completedByName: req.user.name || req.user.email || ''
     });
 
     res.json({ message: 'Appointment completed', appointment });
