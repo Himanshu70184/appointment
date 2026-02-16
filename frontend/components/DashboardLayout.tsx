@@ -116,7 +116,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         </nav>
 
         {/* Logout */}
-        <div className="p-4 border-t border-gray-700">
+        <div className="bg-sidebar-bg p-4 border-t border-gray-700">
           <button
             onClick={handleLogout}
             className="sidebar-link w-full"

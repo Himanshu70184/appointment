@@ -21,7 +21,8 @@ const {
   sendAppointmentCancellationNotifications,
   sendPendingIntakeNotifications,
   sendAppointmentCompletedNotifications,
-  sendAdminApprovalRequiredNotifications
+  sendAdminApprovalRequiredNotifications,
+  sendAppointmentRescheduleNotifications
 } = require('../utils/notifications');
 
 const router = express.Router();
@@ -1156,19 +1157,23 @@ router.put('/:id/reschedule', [
       return res.status(403).json({ message: 'Not authorized' });
     }
 
+    const previousDate = appointment.scheduledDate;
+    const previousTime = appointment.scheduledTime;
+    const previousDoctorId = appointment.doctor_id;
+
     appointment.scheduledDate = scheduledDate;
     appointment.scheduledTime = scheduledTime;
     if (doctor_id) appointment.doctor_id = doctor_id;
     appointment.status = 'rescheduled';
     await appointment.save();
 
-    // Create notification
-    await Notification.create({
-      user_id: appointment.patient_id._id,
-      type: 'appointment',
-      title: 'Appointment Rescheduled',
-      message: `Your appointment has been rescheduled to ${new Date(scheduledDate).toLocaleString()}`,
-      related_id: appointment._id
+    await sendAppointmentRescheduleNotifications({
+      appointmentInput: appointment,
+      previousDate,
+      previousTime,
+      previousDoctorId,
+      rescheduleByRole: resolveInitiatorRole(req.user.role_id),
+      rescheduleByName: req.user.name || req.user.email || ''
     });
 
     res.json({ message: 'Appointment rescheduled', appointment });

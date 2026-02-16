@@ -17,7 +17,8 @@ const {
   sendAppointmentScheduledNotifications,
   sendAppointmentCancellationNotifications,
   sendPendingIntakeNotifications,
-  sendAdminApprovalRequiredNotifications
+  sendAdminApprovalRequiredNotifications,
+  sendAppointmentRescheduleNotifications
 } = require('../utils/notifications');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -1067,6 +1068,8 @@ router.put('/appointments/:id/reschedule', [
     }
 
     const previousDoctorId = appointment.doctor_id?.toString();
+    const previousDate = appointment.scheduledDate;
+    const previousTime = appointment.scheduledTime;
 
     appointment.scheduledDate = new Date(scheduledDate);
     appointment.scheduledTime = scheduledTime;
@@ -1074,22 +1077,13 @@ router.put('/appointments/:id/reschedule', [
     appointment.status = 'rescheduled';
     await appointment.save();
 
-    if (previousDoctorId && previousDoctorId !== assignedDoctorId.toString()) {
-      await Notification.create({
-        user_id: previousDoctorId,
-        type: 'appointment',
-        title: 'Appointment Cancelled',
-        message: `Appointment ${appointment._id} was rescheduled to another doctor.`,
-        related_id: appointment._id
-      });
-    }
-
-    await Notification.create({
-      user_id: appointment.patient_id._id,
-      type: 'appointment',
-      title: 'Appointment Rescheduled',
-      message: `Your appointment has been rescheduled to ${new Date(scheduledDate).toLocaleString()}`,
-      related_id: appointment._id
+    await sendAppointmentRescheduleNotifications({
+      appointmentInput: appointment,
+      previousDate,
+      previousTime,
+      previousDoctorId,
+      rescheduleByRole: 'patient',
+      rescheduleByName: req.user.name || req.user.email || ''
     });
 
     res.json({

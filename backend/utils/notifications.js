@@ -407,10 +407,120 @@ const sendAppointmentCompletedNotifications = async ({
   }
 };
 
-module.exports = {
-  sendAppointmentScheduledNotifications,
-  sendAppointmentCancellationNotifications,
-  sendPendingIntakeNotifications,
-  sendAppointmentCompletedNotifications,
-  sendAdminApprovalRequiredNotifications
+const sendAppointmentRescheduleNotifications = async ({
+  appointmentInput,
+  previousDate,
+  previousTime,
+  previousDoctorId,
+  rescheduleByRole = 'system',
+  rescheduleByName
+} = {}) => {
+  try {
+    const appointment =
+      typeof appointmentInput === 'object' && appointmentInput !== null
+        ? appointmentInput
+        : await Appointment.findById(appointmentInput);
+
+    if (!appointment) {
+      return;
+    }
+
+    const patientId = resolveUserId(appointment.patient_id);
+    const doctorId = resolveUserId(appointment.doctor_id);
+    const normalizedRole = normalizeInitiatorRole(rescheduleByRole);
+
+    const [patientUser, doctorUser, previousDoctorUser, adminStaffUsers] = await Promise.all([
+      patientId ? User.findById(patientId).select('firstName lastName name role_id') : null,
+      doctorId ? User.findById(doctorId).select('firstName lastName name role_id') : null,
+      previousDoctorId ? User.findById(previousDoctorId).select('firstName lastName name role_id') : null,
+      User.find({ role_id: { $in: [1, 4] } }).select('_id role_id firstName lastName name')
+    ]);
+
+    const { dateLabel, timeLabel } = formatScheduleWindow(appointment);
+    const previousDateLabel = previousDate ? new Date(previousDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'TBD';
+    const previousTimeLabel = previousTime || 'TBD';
+    const patientName = formatDisplayName(patientUser);
+    const doctorName = formatDisplayName(doctorUser);
+    const actorLabelInput = rescheduleByName && rescheduleByName.trim().length ? rescheduleByName.trim() : '';
+    const roleLabel = normalizedRole !== 'system' ? capitalize(normalizedRole) : '';
+    const actorLabel = actorLabelInput || roleLabel;
+    const actorSegment = actorLabel ? ` by ${actorLabel}` : '';
+
+    const notifications = [];
+
+    const isDoctorChanged = previousDoctorId && doctorId && previousDoctorId.toString() !== doctorId.toString();
+
+    // Patient always gets reschedule notification
+    if (patientUser) {
+      notifications.push({
+        user_id: patientUser._id,
+        type: 'appointment',
+        title: 'Appointment Rescheduled',
+        message: `Your appointment has been rescheduled from ${previousDateLabel} at ${previousTimeLabel} to ${dateLabel} at ${timeLabel}${actorSegment}.`,
+        related_id: appointment._id
+      });
+    }
+
+    // If doctor changed to a different doctor
+    if (isDoctorChanged) {
+      // Old doctor gets cancellation notification
+      if (previousDoctorUser) {
+        notifications.push({
+          user_id: previousDoctorUser._id,
+          type: 'appointment',
+          title: 'Appointment Cancelled',
+          message: `${patientName}'s appointment scheduled for ${previousDateLabel} at ${previousTimeLabel} has been cancelled.`,
+          related_id: appointment._id
+        });
+      }
+
+      // New doctor gets scheduled notification
+      if (doctorUser) {
+        notifications.push({
+          user_id: doctorUser._id,
+          type: 'appointment',
+          title: 'New Appointment Assigned',
+          message: `${patientName} is on your schedule for ${dateLabel} at ${timeLabel}.`,
+          related_id: appointment._id
+        });
+      }
+    } else if (doctorUser && doctorId) {
+      // Same doctor - gets reschedule notification
+      notifications.push({
+        user_id: doctorUser._id,
+        type: 'appointment',
+        title: 'Appointment Rescheduled',
+        message: `${patientName}'s appointment has been rescheduled from ${previousDateLabel} at ${previousTimeLabel} to ${dateLabel} at ${timeLabel}${actorSegment}.`,
+        related_id: appointment._id
+      });
+    }
+
+    // Admin/Staff always get reschedule notification
+    if (adminStaffUsers && adminStaffUsers.length) {
+      adminStaffUsers.forEach((user) => {
+        notifications.push({
+          user_id: user._id,
+          type: 'appointment',
+          title: 'Appointment Rescheduled',
+          message: `${patientName}'s appointment has been rescheduled from ${previousDateLabel} at ${previousTimeLabel} to ${dateLabel} at ${timeLabel}${actorSegment}.`,
+          related_id: appointment._id
+        });
+      });
+    }
+
+    if (notifications.length) {
+      await Notification.insertMany(notifications);
+    }
+  } catch (error) {
+    console.error('Failed to dispatch reschedule notifications:', error);
+  }
+};
+
+ module.exports = {
+   sendAppointmentScheduledNotifications,
+   sendAppointmentCancellationNotifications,
+   sendPendingIntakeNotifications,
+   sendAppointmentCompletedNotifications,
+   sendAdminApprovalRequiredNotifications,
+   sendAppointmentRescheduleNotifications
 };
