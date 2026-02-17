@@ -9,6 +9,9 @@ import DashboardLayout from '@/components/DashboardLayout'
 import type { AppDispatch, RootState } from '@/store/store'
 import api from '@/lib/api'
 
+// Utility to get user id from user object
+const getUserId = (user: any) => user?._id || user?.id || user?.user_id || null;
+
 export default function AppointmentDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -18,6 +21,8 @@ export default function AppointmentDetailPage() {
   const { currentSubmission, loading: intakeLoading, error: intakeError } = useSelector(
     (state: RootState) => state.intakeFormSubmissions
   )
+  // Get current user at top-level (fixes hook error)
+  const currentUser = useSelector((state: RootState) => state.auth.user)
   const [activeTab, setActiveTab] = useState<'emailLogs' | 'tasks' | 'notes'>('notes')
   const [notes, setNotes] = useState('')
   const [documentRequest, setDocumentRequest] = useState('')
@@ -28,6 +33,16 @@ export default function AppointmentDetailPage() {
   const [isEditingPatient, setIsEditingPatient] = useState(false)
   const [patientSuccess, setPatientSuccess] = useState<string | null>(null)
   const dobPickerRef = useRef<HTMLInputElement | null>(null)
+  const [tasks, setTasks] = useState<any[]>([])
+  const [tasksLoading, setTasksLoading] = useState(false)
+  const [showCreateTaskModal, setShowCreateTaskModal] = useState(false)
+  const [staffMembers, setStaffMembers] = useState<any[]>([])
+  const [newTask, setNewTask] = useState({
+    title: '',
+    description: '',
+    assignedTo: '',
+    priority: 'medium'
+  })
   const [patientForm, setPatientForm] = useState({
     firstName: '',
     lastName: '',
@@ -92,6 +107,47 @@ export default function AppointmentDetailPage() {
       fetchEmailLogs()
     }
   }, [activeTab, appointmentId])
+
+  useEffect(() => {
+    const fetchTasks = async () => {
+      if (!appointmentId) return
+      setTasksLoading(true)
+      try {
+        const response = await api.get('/api/tasks', {
+          params: { appointment: appointmentId }
+        })
+        setTasks(response.data?.tasks || [])
+      } catch (error: any) {
+        console.error('Failed to fetch tasks:', error)
+      } finally {
+        setTasksLoading(false)
+      }
+    }
+
+    if (activeTab === 'tasks') {
+      fetchTasks()
+    }
+  }, [activeTab, appointmentId])
+
+  useEffect(() => {
+    const fetchStaffMembers = async () => {
+      try {
+        const response = await api.get('/api/users', {
+          params: { role: 'staff' }
+        })
+        console.log('Staff response:', response.data)
+        const staffList = response.data?.users || []
+        console.log('Staff members:', staffList)
+        setStaffMembers(staffList)
+      } catch (error: any) {
+        console.error('Failed to fetch staff:', error.response?.data || error.message)
+      }
+    }
+
+    if (showCreateTaskModal) {
+      fetchStaffMembers()
+    }
+  }, [showCreateTaskModal])
 
   const handleSendDocumentRequest = () => {
     // TODO: Implement document request functionality
@@ -333,6 +389,87 @@ export default function AppointmentDetailPage() {
     } else {
       picker?.focus()
       picker?.click()
+    }
+  }
+
+  // Task Handlers
+  const handleCreateTask = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!newTask.title.trim()) {
+      alert('Please enter a task title')
+      return
+    }
+
+    try {
+      const payload = {
+        title: newTask.title,
+        description: newTask.description || '',
+        appointment: appointmentId,
+        assignedTo: newTask.assignedTo || undefined,
+        priority: newTask.priority || 'medium',
+        status: 'pending'
+      }
+
+      await api.post('/api/tasks', payload)
+      
+      // Reset form
+      setNewTask({
+        title: '',
+        description: '',
+        assignedTo: '',
+        priority: 'medium'
+      })
+      
+      // Close modal and refresh tasks
+      setShowCreateTaskModal(false)
+      const response = await api.get('/api/tasks', {
+        params: { appointment: appointmentId }
+      })
+      setTasks(response.data?.tasks || [])
+      
+      alert('Task created successfully')
+    } catch (error: any) {
+      console.error('Error creating task:', error)
+      alert(error.response?.data?.message || 'Failed to create task')
+    }
+  }
+
+  const handleUpdateTaskStatus = async (taskId: string, newStatus: string) => {
+    try {
+      await api.put(`/api/tasks/${taskId}`, { status: newStatus })
+      
+      // Refresh task list
+      const response = await api.get('/api/tasks', {
+        params: { appointment: appointmentId }
+      })
+      setTasks(response.data?.tasks || [])
+      
+      alert(`Task marked as ${newStatus}`)
+    } catch (error: any) {
+      console.error('Error updating task:', error)
+      alert(error.response?.data?.message || 'Failed to update task')
+    }
+  }
+
+  const handleDeleteTask = async (taskId: string) => {
+    if (!confirm('Are you sure you want to delete this task?')) {
+      return
+    }
+
+    try {
+      await api.delete(`/api/tasks/${taskId}`)
+      
+      // Refresh task list
+      const response = await api.get('/api/tasks', {
+        params: { appointment: appointmentId }
+      })
+      setTasks(response.data?.tasks || [])
+      
+      alert('Task deleted successfully')
+    } catch (error: any) {
+      console.error('Error deleting task:', error)
+      alert(error.response?.data?.message || 'Failed to delete task')
     }
   }
 
@@ -697,14 +834,234 @@ export default function AppointmentDetailPage() {
                   )}
 
                   {activeTab === 'tasks' && (
-                    <div className="text-gray-500 text-center py-8">
-                      No tasks available
+                    <div>
+                      <div className="mb-4 flex justify-between items-center">
+                        <h3 className="text-md font-semibold text-gray-900">
+                          {tasks.length} {tasks.length === 1 ? 'Task' : 'Tasks'}
+                        </h3>
+                        <button
+                          onClick={() => setShowCreateTaskModal(true)}
+                          className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 text-sm font-medium"
+                        >
+                          + Create Task
+                        </button>
+                      </div>
+
+                      {tasksLoading ? (
+                        <div className="text-center py-8 text-gray-500">Loading tasks...</div>
+                      ) : tasks.length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">No tasks available</div>
+                      ) : (
+                        <div className="space-y-3">
+                          {/* Filter tasks: hide soft-deleted for assignee, show all for creator/admin */}
+                          {tasks
+                            .filter((task: any) => {
+                              const currentUserId = getUserId(currentUser);
+                              // If not assignedTo, show
+                              if (!task.assignedTo) return true;
+                              // If current user is creator, show
+                              if (task.createdBy && getUserId(task.createdBy) === currentUserId) return true;
+                              // If current user is admin, show
+                              if (currentUser?.role_id === 1) return true;
+                              // If current user is assignee, hide if deleted
+                              if (task.assignedTo && getUserId(task.assignedTo) === currentUserId) {
+                                return !task.deleted;
+                              }
+                              // Otherwise, show
+                              return true;
+                            })
+                            .map((task: any) => (
+                              <div key={task._id} className="border rounded-lg p-4 hover:bg-gray-50 transition">
+                              <div className="flex items-start justify-between gap-3 mb-2">
+                                <div className="flex-1">
+                                  <h4 className="font-medium text-gray-900">{task.title}</h4>
+                                  {task.description && (
+                                    <p className="text-sm text-gray-600 mt-1">{task.description}</p>
+                                  )}
+                                </div>
+                                <div className="flex gap-2">
+                                  <span
+                                    className={`px-2 py-1 text-xs font-medium rounded whitespace-nowrap ${
+                                      task.status === 'completed'
+                                        ? 'bg-green-100 text-green-800'
+                                        : task.status === 'in_progress'
+                                        ? 'bg-blue-100 text-blue-800'
+                                        : 'bg-yellow-100 text-yellow-800'
+                                    }`}
+                                  >
+                                    {task.status === 'in_progress' ? 'In Progress' : task.status.charAt(0).toUpperCase() + task.status.slice(1)}
+                                  </span>
+                                  <span
+                                    className={`px-2 py-1 text-xs font-medium rounded whitespace-nowrap ${
+                                      task.priority === 'high'
+                                        ? 'bg-red-100 text-red-800'
+                                        : task.priority === 'medium'
+                                        ? 'bg-yellow-100 text-yellow-800'
+                                        : 'bg-gray-100 text-gray-800'
+                                    }`}
+                                  >
+                                    {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center justify-between text-sm text-gray-600 mb-3">
+                                <div className="space-x-3">
+                                  {task.assignedTo && (
+                                    <span>
+                                      Assigned to:{' '}
+                                      <span className="font-medium text-gray-900">
+                                        {typeof task.assignedTo === 'object'
+                                          ? task.assignedTo.name || task.assignedTo.email
+                                          : task.assignedTo}
+                                      </span>
+                                    </span>
+                                  )}
+                                </div>
+                                {task.dueDate && (
+                                  <span>Due: {new Date(task.dueDate).toLocaleDateString()}</span>
+                                )}
+                              </div>
+
+                              {task.status !== 'completed' && (
+                                <div className="flex gap-2 pt-2 border-t">
+                                  <button
+                                    onClick={() => handleUpdateTaskStatus(task._id, 'in_progress')}
+                                    className={`px-3 py-1 text-sm rounded ${
+                                      task.status === 'in_progress'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'border border-blue-600 text-blue-600 hover:bg-blue-50'
+                                    }`}
+                                  >
+                                    In Progress
+                                  </button>
+                                  <button
+                                    onClick={() => handleUpdateTaskStatus(task._id, 'completed')}
+                                    className="px-3 py-1 text-sm border border-green-600 text-green-600 rounded hover:bg-green-50"
+                                  >
+                                    Complete
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteTask(task._id)}
+                                    className="px-3 py-1 text-sm border border-red-600 text-red-600 rounded hover:bg-red-50 ml-auto"
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              )}
+                              
+                              {task.status === 'completed' && (
+                                <div className="flex gap-2 pt-2 border-t">
+                                  <button
+                                    onClick={() => handleDeleteTask(task._id)}
+                                    className="px-3 py-1 text-sm border border-red-600 text-red-600 rounded hover:bg-red-50 ml-auto"
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Create Task Modal */}
+                      {showCreateTaskModal && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                          <div className="bg-white rounded-lg max-w-md w-full mx-4 p-6">
+                            <div className="flex items-center justify-between mb-4">
+                              <h3 className="text-lg font-semibold text-gray-900">Create New Task</h3>
+                              <button
+                                onClick={() => setShowCreateTaskModal(false)}
+                                className="text-gray-400 hover:text-gray-600 text-xl"
+                              >
+                                ✕
+                              </button>
+                            </div>
+
+                            <form onSubmit={handleCreateTask} className="space-y-4">
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                  Task Title *
+                                </label>
+                                <input
+                                  type="text"
+                                  value={newTask.title}
+                                  onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                  placeholder="Enter task title"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                  Description
+                                </label>
+                                <textarea
+                                  value={newTask.description}
+                                  onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                  placeholder="Enter task description"
+                                  rows={3}
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                  Priority
+                                </label>
+                                <select
+                                  value={newTask.priority}
+                                  onChange={(e) => setNewTask({ ...newTask, priority: e.target.value })}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                >
+                                  <option value="low">Low</option>
+                                  <option value="medium">Medium</option>
+                                  <option value="high">High</option>
+                                </select>
+                              </div>
+
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                  Assign To
+                                </label>
+                                <select
+                                  value={newTask.assignedTo}
+                                  onChange={(e) => setNewTask({ ...newTask, assignedTo: e.target.value })}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                >
+                                  <option value="">Select staff member...</option>
+                                  {staffMembers.map((staff: any) => (
+                                    <option key={staff._id} value={staff._id}>
+                                      {staff.name || staff.email}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div className="flex gap-2 pt-4 border-t">
+                                <button
+                                  type="button"
+                                  onClick={() => setShowCreateTaskModal(false)}
+                                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="submit"
+                                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+                                >
+                                  Create Task
+                                </button>
+                              </div>
+                            </form>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
               </div>
-
-              {/* Right Column - Appointment & Doctor Details */}
               <div className="space-y-6">
                 {/* Appointment Details */}
                 <div className="card">

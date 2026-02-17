@@ -1,6 +1,10 @@
 const mongoose = require('mongoose');
 
 const taskSchema = new mongoose.Schema({
+    deleted: {
+      type: Boolean,
+      default: false
+    },
   appointment: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Appointment',
@@ -31,9 +35,6 @@ const taskSchema = new mongoose.Schema({
     type: String,
     enum: ['low', 'medium', 'high'],
     default: 'medium'
-  },
-  dueDate: {
-    type: Date
   },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,

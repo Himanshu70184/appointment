@@ -1,6 +1,7 @@
 const Notification = require('../models/Notification');
 const Appointment = require('../models/Appointment');
 const User = require('../models/User');
+const Task = require('../models/Task');
 
 const formatDisplayName = (user) => {
   if (!user) return 'Patient';
@@ -516,11 +517,90 @@ const sendAppointmentRescheduleNotifications = async ({
   }
 };
 
+const sendTaskAssignedNotification = async ({
+  taskInput,
+  assignedStaffId,
+  createdByName
+} = {}) => {
+  try {
+    console.log('sendTaskAssignedNotification called with:', { assignedStaffId, taskInput: taskInput?._id || taskInput });
+    
+    const task =
+      typeof taskInput === 'object' && taskInput !== null
+        ? taskInput
+        : await Task.findById(taskInput);
+
+    if (!task) {
+      console.log('Task not found for notification');
+      return;
+    }
+
+    if (!assignedStaffId) {
+      console.log('No assignedStaffId provided for task notification');
+      return;
+    }
+
+    const staff = await User.findById(assignedStaffId).select('firstName lastName name role_id email');
+    if (!staff) {
+      console.log('Staff member not found for ID:', assignedStaffId);
+      return;
+    }
+
+    const taskCreatorName = createdByName && createdByName.trim().length ? createdByName.trim() : 'Admin';
+
+    console.log('Creating notification for staff:', staff._id, staff.email);
+    
+    await Notification.create({
+      user_id: assignedStaffId,
+      type: 'task',
+      title: 'New Task Assigned',
+      message: `You have been assigned a new task: "${task.title}".`,
+      related_id: task._id
+    });
+
+    console.log('Task notification created successfully for:', staff.email);
+  } catch (error) {
+    console.error('Failed to dispatch task assigned notification:', error);
+  }
+};
+
+const sendTaskCompletedNotification = async ({
+  taskInput,
+  createdByAdminId,
+  completedByName
+} = {}) => {
+  try {
+    const Task = require('../models/Task');
+    const task =
+      typeof taskInput === 'object' && taskInput !== null
+        ? taskInput
+        : await Task.findById(taskInput);
+
+    if (!task || !createdByAdminId) {
+      return;
+    }
+
+    const completedByLabel = completedByName && completedByName.trim().length ? completedByName.trim() : 'Staff';
+
+    await Notification.create({
+      user_id: createdByAdminId,
+      type: 'task',
+      title: 'Task Completed',
+      message: `Task "${task.title}" has been marked as completed by ${completedByLabel}.`,
+      related_id: task._id
+    });
+  } catch (error) {
+    console.error('Failed to dispatch task completed notification:', error);
+  }
+};
+
  module.exports = {
    sendAppointmentScheduledNotifications,
    sendAppointmentCancellationNotifications,
    sendPendingIntakeNotifications,
    sendAppointmentCompletedNotifications,
    sendAdminApprovalRequiredNotifications,
-   sendAppointmentRescheduleNotifications
+   sendAppointmentRescheduleNotifications,
+   sendTaskAssignedNotification,
+   sendTaskCompletedNotification
 };
