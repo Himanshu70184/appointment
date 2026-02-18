@@ -250,8 +250,10 @@ router.post('/admin-book', [
       return res.status(404).json({ message: 'Patient not found' });
     }
 
-    // Verify doctor exists
-    const doctor = await Doctor.findById(doctor_id);
+    // Verify doctor exists (accept Doctor _id or User _id)
+    const doctor = await Doctor.findOne({
+      $or: [{ _id: doctor_id }, { user_id: doctor_id }]
+    });
     if (!doctor) {
       return res.status(404).json({ message: 'Doctor not found' });
     }
@@ -265,7 +267,7 @@ router.post('/admin-book', [
     // Create appointment with pending status (requires approval)
     const appointment = new Appointment({
       patient_id,
-      doctor_id,
+      doctor_id: doctor.user_id,
       state_id,
       appointmentType: appointmentType_id,
       appointmentDate: new Date(appointmentDate),

@@ -1,10 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { useDispatch, useSelector } from 'react-redux'
 import { logout } from '@/store/slices/authSlice'
+import {
+  fetchNotifications,
+  selectNotifications,
+  selectUnreadCount
+} from '@/store/slices/notificationSlice'
 import type { RootState, AppDispatch } from '@/store/store'
 
 interface DashboardLayoutProps {
@@ -17,6 +22,19 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const pathname = usePathname()
   const dispatch = useDispatch<AppDispatch>()
   const { user, loading: authLoading } = useSelector((state: RootState) => state.auth)
+  const unreadCount = useSelector(selectUnreadCount)
+  const notifications = useSelector(selectNotifications)
+
+  const appointmentUnreadCount = notifications.filter((notification: any) => {
+    const isAppointment = notification.type === 'appointment' || notification.type === 'new_appointment'
+    return isAppointment && !notification.isRead
+  }).length
+
+  useEffect(() => {
+    if (user) {
+      dispatch(fetchNotifications())
+    }
+  }, [dispatch, user])
 
   // AuthGuard handles authentication checks - DashboardLayout just renders
   // If we reach here, user is already authenticated via AuthGuard
@@ -43,6 +61,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       4: 'Staff',
     }
     return roles[roleId] || 'Unknown'
+  }
+
+  const getNotificationsHref = (roleId?: number) => {
+    if (roleId === 2) return '/doctor/notifications'
+    if (roleId === 3) return '/patient/notifications'
+    return '/notifications'
   }
 
   const menuItems = [
@@ -139,9 +163,32 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               <h2 className="text-2xl font-bold text-gray-800">Dashboard</h2>
             </div>
             <div className="flex items-center gap-4">
-              <button className="p-2 hover:bg-gray-100 rounded-full">
+              <Link
+                href={`${getNotificationsHref(user?.role_id)}?filter=appointments`}
+                className="relative p-2 hover:bg-gray-100 rounded-full"
+                aria-label="New appointment notifications"
+                title="New appointment notifications"
+              >
+                <span className="text-xl">📅</span>
+                {appointmentUnreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 flex items-center justify-center rounded-full bg-red-600 text-white text-xs font-semibold">
+                    {appointmentUnreadCount > 99 ? '99+' : appointmentUnreadCount}
+                  </span>
+                )}
+              </Link>
+              <Link
+                href={getNotificationsHref(user?.role_id)}
+                className="relative p-2 hover:bg-gray-100 rounded-full"
+                aria-label="Notifications"
+                title="All notifications"
+              >
                 <span className="text-xl">🔔</span>
-              </button>
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 flex items-center justify-center rounded-full bg-red-600 text-white text-xs font-semibold">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
+              </Link>
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 bg-primary-600 rounded-full flex items-center justify-center text-white">
                   {user?.name?.[0]?.toUpperCase() || 'U'}

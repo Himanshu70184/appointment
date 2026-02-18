@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useDispatch, useSelector } from 'react-redux'
 import {
   fetchNotifications,
@@ -19,13 +20,21 @@ interface NotificationCenterProps {
 
 export default function NotificationCenter({ heading = 'Notifications', subheading }: NotificationCenterProps) {
   const dispatch = useDispatch<AppDispatch>()
+  const searchParams = useSearchParams()
   const notifications = useSelector(selectNotifications)
   const loading = useSelector(selectNotificationsLoading)
   const error = useSelector(selectNotificationsError)
+  const initialFilter = searchParams.get('filter') === 'appointments' ? 'appointments' : 'all'
+  const [filter, setFilter] = useState<'all' | 'appointments' | 'other'>(initialFilter)
 
   useEffect(() => {
     dispatch(fetchNotifications())
   }, [dispatch])
+
+  useEffect(() => {
+    const nextFilter = searchParams.get('filter') === 'appointments' ? 'appointments' : 'all'
+    setFilter(nextFilter)
+  }, [searchParams])
 
   const handleMarkAllRead = async () => {
     try {
@@ -134,11 +143,25 @@ export default function NotificationCenter({ heading = 'Notifications', subheadi
     }
   }
 
+  const isAppointmentNotification = (notification: any) =>
+    notification.type === 'appointment' || notification.type === 'new_appointment'
+
   const unreadCount = notifications.filter((n: any) => !n.isRead).length
+  const appointmentUnreadCount = notifications.filter((n: any) => isAppointmentNotification(n) && !n.isRead).length
+
+  const filteredNotifications = useMemo(() => {
+    if (filter === 'appointments') {
+      return notifications.filter(isAppointmentNotification)
+    }
+    if (filter === 'other') {
+      return notifications.filter((notification: any) => !isAppointmentNotification(notification))
+    }
+    return notifications
+  }, [filter, notifications])
 
   return (
     <section>
-      <div className="mb-8 flex items-center justify-between">
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">{heading}</h1>
           {subheading && <p className="text-gray-600">{subheading}</p>}
@@ -146,14 +169,44 @@ export default function NotificationCenter({ heading = 'Notifications', subheadi
             {unreadCount > 0 ? `${unreadCount} unread notification${unreadCount > 1 ? 's' : ''}` : 'All caught up!'}
           </p>
         </div>
-        {unreadCount > 0 && (
-          <button
-            onClick={handleMarkAllRead}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
-          >
-            Mark All as Read
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2 rounded-full bg-gray-100 p-1">
+            <button
+              onClick={() => setFilter('all')}
+              className={`px-3 py-1.5 text-sm font-medium rounded-full ${
+                filter === 'all' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              All
+              {unreadCount > 0 && <span className="ml-2 text-xs text-gray-500">{unreadCount}</span>}
+            </button>
+            <button
+              onClick={() => setFilter('appointments')}
+              className={`px-3 py-1.5 text-sm font-medium rounded-full ${
+                filter === 'appointments' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Appointments
+              {appointmentUnreadCount > 0 && <span className="ml-2 text-xs text-gray-500">{appointmentUnreadCount}</span>}
+            </button>
+            <button
+              onClick={() => setFilter('other')}
+              className={`px-3 py-1.5 text-sm font-medium rounded-full ${
+                filter === 'other' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Other
+            </button>
+          </div>
+          {unreadCount > 0 && (
+            <button
+              onClick={handleMarkAllRead}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+            >
+              Mark All as Read
+            </button>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -168,7 +221,7 @@ export default function NotificationCenter({ heading = 'Notifications', subheadi
             <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
             <p className="text-gray-600 mt-4">Loading notifications...</p>
           </div>
-        ) : notifications.length === 0 ? (
+        ) : filteredNotifications.length === 0 ? (
           <div className="p-12 text-center">
             <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
@@ -178,12 +231,18 @@ export default function NotificationCenter({ heading = 'Notifications', subheadi
                 d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
               />
             </svg>
-            <p className="text-gray-600 text-lg">No notifications yet</p>
-            <p className="text-gray-500 text-sm mt-2">You'll be notified about new appointments and updates</p>
+            <p className="text-gray-600 text-lg">
+              {filter === 'appointments' ? 'No appointment notifications yet' : 'No notifications yet'}
+            </p>
+            <p className="text-gray-500 text-sm mt-2">
+              {filter === 'appointments'
+                ? 'New appointment updates will appear here.'
+                : "You'll be notified about new appointments and updates"}
+            </p>
           </div>
         ) : (
           <div className="divide-y divide-gray-200">
-            {notifications.map((notification: any) => (
+            {filteredNotifications.map((notification: any) => (
               <div
                 key={notification._id}
                 className={`p-6 hover:bg-gray-50 transition-colors cursor-pointer ${
