@@ -88,6 +88,16 @@ export default function AppointmentDetailPage() {
     }
   }, [currentAppointment])
 
+  const latestPendingDocumentRequest = (currentAppointment?.documentRequests || [])
+    .filter((request: any) => request.status === 'pending')
+    .sort((a: any, b: any) => new Date(b.requestedAt || 0).getTime() - new Date(a.requestedAt || 0).getTime())[0]
+
+  useEffect(() => {
+    if (!documentRequest.trim() && latestPendingDocumentRequest?.message) {
+      setDocumentRequest(latestPendingDocumentRequest.message)
+    }
+  }, [documentRequest, latestPendingDocumentRequest])
+
   useEffect(() => {
     const fetchEmailLogs = async () => {
       if (!appointmentId) return
@@ -149,11 +159,29 @@ export default function AppointmentDetailPage() {
     }
   }, [showCreateTaskModal])
 
-  const handleSendDocumentRequest = () => {
-    // TODO: Implement document request functionality
-    console.log('Requesting document:', documentRequest)
-    alert('Document request sent to patient')
-    setDocumentRequest('')
+  const handleSendDocumentRequest = async () => {
+    if (!documentRequest.trim()) {
+      alert('Please enter a document request message')
+      return
+    }
+
+    try {
+      await api.post(`/api/appointments/${appointmentId}/send-email`, {
+        template: 'request-document',
+        customMessage: documentRequest.trim()
+      })
+
+      alert('Document request email sent to patient')
+      setDocumentRequest('')
+      await dispatch(getAppointment(appointmentId))
+
+      if (activeTab === 'emailLogs') {
+        const response = await api.get(`/api/appointments/${appointmentId}/email-logs`)
+        setEmailLogs(response.data?.logs || [])
+      }
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Failed to send document request email')
+    }
   }
 
   const handleSaveNotes = async () => {
@@ -746,6 +774,14 @@ export default function AppointmentDetailPage() {
                         Send
                       </button>
                     </div>
+                    {latestPendingDocumentRequest && (
+                      <p className="mt-2 text-xs text-gray-500">
+                        Latest request from doctor on{' '}
+                        {latestPendingDocumentRequest.requestedAt
+                          ? new Date(latestPendingDocumentRequest.requestedAt).toLocaleDateString('en-US')
+                          : 'an unknown date'}.
+                      </p>
+                    )}
                   </div>
                 </div>
 

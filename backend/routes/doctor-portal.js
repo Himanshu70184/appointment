@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const { auth, authorize } = require('../middleware/auth');
 const Appointment = require('../models/Appointment');
 const Doctor = require('../models/Doctor');
+const State = require('../models/State');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
 const { sendAppointmentCompletedNotifications } = require('../utils/notifications');
@@ -20,6 +21,26 @@ const addIntakePendingFlag = (appointment) => {
   return { ...data, intakePending };
 };
 
+const addStateNames = async (appointments) => {
+  const list = Array.isArray(appointments) ? appointments : [appointments];
+  const codes = [...new Set(list.map((appointment) => appointment.state).filter(Boolean))];
+
+  if (!codes.length) {
+    return list.map(addIntakePendingFlag);
+  }
+
+  const states = await State.find({ code: { $in: codes } }).select('code name').lean();
+  const stateMap = new Map(states.map((state) => [state.code, state.name]));
+
+  return list.map((appointment) => {
+    const data = addIntakePendingFlag(appointment);
+    return {
+      ...data,
+      stateName: stateMap.get(appointment.state) || appointment.state
+    };
+  });
+};
+
 // @route   GET /api/doctor-portal/dashboard
 // @desc    Get doctor dashboard statistics and upcoming appointments
 // @access  Private (Doctor)
@@ -34,11 +55,16 @@ router.get('/dashboard', [auth, authorize('doctor')], async (req, res) => {
     // Get all appointments for this doctor
     const allAppointments = await Appointment.find({ doctor_id: req.user._id });
 
+    const isIntakePending = (appointment) => {
+      const status = appointment.status;
+      return !appointment.intakeSubmitted && status !== 'completed' && status !== 'cancelled' && status !== 'canceled';
+    };
+
     // Calculate statistics
     const stats = {
       total: allAppointments.length,
       scheduled: allAppointments.filter(a => a.status === 'scheduled').length,
-      pending: allAppointments.filter(a => a.status === 'pending').length,
+      pending: allAppointments.filter(a => a.status === 'pending' || isIntakePending(a)).length,
       onHold: allAppointments.filter(a => a.status === 'on-hold').length,
       cancelled: allAppointments.filter(a => a.status === 'cancelled').length,
       completed: allAppointments.filter(a => a.status === 'completed').length
@@ -58,9 +84,11 @@ router.get('/dashboard', [auth, authorize('doctor')], async (req, res) => {
       .sort({ scheduledDate: 1, scheduledTime: 1 })
       .limit(10);
 
+    const upcomingWithStateNames = await addStateNames(upcomingAppointments);
+
     res.json({
       stats,
-      upcomingAppointments: upcomingAppointments.map(addIntakePendingFlag),
+      upcomingAppointments: upcomingWithStateNames,
       doctorProfile
     });
   } catch (error) {
@@ -115,7 +143,9 @@ router.get('/appointments', [auth, authorize('doctor')], async (req, res) => {
       );
     }
 
-    res.json({ appointments: appointments.map(addIntakePendingFlag) });
+    const appointmentsWithStateNames = await addStateNames(appointments);
+
+    res.json({ appointments: appointmentsWithStateNames });
   } catch (error) {
     console.error('Get doctor appointments error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -142,7 +172,9 @@ router.get('/appointments/:id', [auth, authorize('doctor')], async (req, res) =>
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    res.json({ appointment: addIntakePendingFlag(appointment) });
+    const appointmentWithStateName = (await addStateNames(appointment))[0];
+
+    res.json({ appointment: appointmentWithStateName });
   } catch (error) {
     console.error('Get appointment details error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -204,14 +236,7 @@ router.put('/appointments/:id/certify', [auth, authorize('doctor')], async (req,
     appointment.certificationFiled = true;
     appointment.certificationFiledAt = new Date();
     appointment.certificationFiledBy = req.user._id;
-    appointment.status = 'completed';
     await appointment.save();
-
-    await sendAppointmentCompletedNotifications({
-      appointmentInput: appointment,
-      completedByRole: 'doctor',
-      completedByName: req.user.name || req.user.email || ''
-    });
 
     // Create notification for patient
     await Notification.create({
@@ -238,6 +263,94 @@ router.put('/appointments/:id/certify', [auth, authorize('doctor')], async (req,
     });
   } catch (error) {
     console.error('Certification filing error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   PUT /api/doctor-portal/appointments/:id/issue-card
+// @desc    Issue MMJ card for appointment
+// @access  Private (Doctor)
+router.put('/appointments/:id/issue-card', [
+  auth,
+  authorize('doctor'),
+  body('startDate').isISO8601().withMessage('Valid start date is required'),
+  body('endDate').isISO8601().withMessage('Valid end date is required')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const appointment = await Appointment.findById(req.params.id)
+      .populate('patient_id', 'name email');
+
+    if (!appointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
+
+    if (appointment.doctor_id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    if (!appointment.pdmpVerified || !appointment.certificationFiled) {
+      return res.status(400).json({ message: 'PDMP verification and certification are required before issuing MMJ card' });
+    }
+
+    if (appointment.status === 'cancelled' || appointment.status === 'canceled') {
+      return res.status(400).json({ message: 'Cannot issue MMJ card for cancelled appointment' });
+    }
+
+    const startDate = new Date(req.body.startDate);
+    const endDate = new Date(req.body.endDate);
+
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+      return res.status(400).json({ message: 'Invalid issue date values' });
+    }
+
+    if (endDate < startDate) {
+      return res.status(400).json({ message: 'End date must be greater than or equal to start date' });
+    }
+
+    appointment.mmjCardIssued = true;
+    appointment.mmjCardStartDate = startDate;
+    appointment.mmjCardEndDate = endDate;
+    appointment.mmjCardIssuedAt = new Date();
+    appointment.mmjCardIssuedBy = req.user._id;
+    appointment.status = 'completed';
+    await appointment.save();
+
+    await sendAppointmentCompletedNotifications({
+      appointmentInput: appointment,
+      completedByRole: 'doctor',
+      completedByName: req.user.name || req.user.email || ''
+    });
+
+    await Notification.create({
+      user_id: appointment.patient_id._id,
+      title: 'MMJ Card Issued',
+      message: `Your MMJ card has been issued by Dr. ${req.user.name} from ${startDate.toLocaleDateString('en-US')} to ${endDate.toLocaleDateString('en-US')}.`,
+      type: 'mmj_card',
+      related_id: appointment._id
+    });
+
+    const adminUsers = await User.find({ role_id: { $in: [1, 4] } });
+    if (adminUsers.length) {
+      await Notification.insertMany(adminUsers.map((admin) => ({
+        user_id: admin._id,
+        title: 'MMJ Card Issued',
+        message: `Dr. ${req.user.name} issued MMJ card for ${appointment.patient_id.name} (${startDate.toLocaleDateString('en-US')} - ${endDate.toLocaleDateString('en-US')}).`,
+        type: 'mmj_card',
+        related_id: appointment._id
+      })));
+    }
+
+    res.json({
+      message: 'MMJ card issued successfully',
+      appointment
+    });
+  } catch (error) {
+    console.error('Issue MMJ card error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
@@ -306,21 +419,24 @@ router.post('/appointments/:id/request-documents', [
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    // Add document request
+    // Add document request and put appointment on hold
     appointment.documentRequests.push({
       requestedBy: req.user._id,
       message: req.body.message,
       status: 'pending'
     });
+    if (appointment.status !== 'completed' && appointment.status !== 'cancelled' && appointment.status !== 'canceled') {
+      appointment.status = 'on-hold';
+    }
     await appointment.save();
 
-    // Create notification for admin
-    const adminUsers = await User.find({ role_id: 1 });
-    for (const admin of adminUsers) {
+    // Create notification for admin and staff
+    const adminAndStaffUsers = await User.find({ role_id: { $in: [1, 4] } });
+    for (const user of adminAndStaffUsers) {
       await Notification.create({
-        user_id: admin._id,
+        user_id: user._id,
         title: 'Document Request',
-        message: `Dr. ${req.user.name} has requested additional documents for patient ${appointment.patient_id.name}`,
+        message: `Dr. ${req.user.name} requested documents for ${appointment.patient_id.name}. ${req.body.message}`,
         type: 'document_request',
         relatedAppointment: appointment._id
       });

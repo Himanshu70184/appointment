@@ -116,6 +116,23 @@ const appointmentSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   },
+  mmjCardIssued: {
+    type: Boolean,
+    default: false
+  },
+  mmjCardStartDate: {
+    type: Date
+  },
+  mmjCardEndDate: {
+    type: Date
+  },
+  mmjCardIssuedAt: {
+    type: Date
+  },
+  mmjCardIssuedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
   documentRequests: [{
     requestedBy: {
       type: mongoose.Schema.Types.ObjectId,

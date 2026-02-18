@@ -29,12 +29,17 @@ interface Appointment {
   scheduledDate: string;
   scheduledTime: string;
   state: string;
+  stateName?: string;
   adjustedAmount?: number;
   intakeForm?: any;
   documents?: any[];
   clinicalNotes?: string;
   pdmpVerified: boolean;
   certificationFiled: boolean;
+  mmjCardIssued?: boolean;
+  mmjCardStartDate?: string;
+  mmjCardEndDate?: string;
+  mmjCardIssuedAt?: string;
   documentRequests?: any[];
 }
 
@@ -127,6 +132,18 @@ export const saveClinicalNotes = createAsyncThunk(
       return response.data.appointment;
     } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Failed to save clinical notes');
+    }
+  }
+);
+
+export const issueMMJCard = createAsyncThunk(
+  'doctorPortal/issueMMJCard',
+  async ({ id, startDate, endDate }: { id: string; startDate: string; endDate: string }, { rejectWithValue }) => {
+    try {
+      const response = await api.put(`/api/doctor-portal/appointments/${id}/issue-card`, { startDate, endDate });
+      return response.data.appointment;
+    } catch (error: any) {
+      return rejectWithValue(error.response?.data?.message || 'Failed to issue MMJ card');
     }
   }
 );
@@ -253,6 +270,11 @@ const doctorPortalSlice = createSlice({
         }
       })
       .addCase(saveClinicalNotes.fulfilled, (state, action) => {
+        if (state.currentAppointment) {
+          state.currentAppointment = action.payload;
+        }
+      })
+      .addCase(issueMMJCard.fulfilled, (state, action) => {
         if (state.currentAppointment) {
           state.currentAppointment = action.payload;
         }

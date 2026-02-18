@@ -194,7 +194,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   {user?.name?.[0]?.toUpperCase() || 'U'}
                 </div>
                 <span className="text-gray-700 font-medium">
-                  {getRoleName(user?.role_id || 0)}
+                  {user?.name || getRoleName(user?.role_id || 0)}
                 </span>
               </div>
               {/* Patient booking button */}

@@ -1,15 +1,15 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useRouter } from 'next/navigation';
 import {
   fetchAppointmentDetails,
   verifyPDMP,
   fileCertification,
+  issueMMJCard,
   saveClinicalNotes,
   requestDocuments,
-  updateAppointmentStatus,
   selectCurrentAppointment,
   selectDoctorPortalLoading,
   selectDoctorPortalError,
@@ -32,8 +32,12 @@ export default function AppointmentDetailsPage({ params }: { params: { id: strin
   const [clinicalNotes, setClinicalNotes] = useState('');
   const [documentRequestMessage, setDocumentRequestMessage] = useState('');
   const [showDocumentRequest, setShowDocumentRequest] = useState(false);
-  const [selectedStatus, setSelectedStatus] = useState('');
   const [showIntakeDetails, setShowIntakeDetails] = useState(false);
+  const [showCertificationConfirm, setShowCertificationConfirm] = useState(false);
+  const [showIssueCardModal, setShowIssueCardModal] = useState(false);
+  const [issueStartDate, setIssueStartDate] = useState('');
+  const [issueEndDate, setIssueEndDate] = useState('');
+  const issueStartDatePickerRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     dispatch(fetchAppointmentDetails(params.id));
@@ -46,18 +50,31 @@ export default function AppointmentDetailsPage({ params }: { params: { id: strin
   useEffect(() => {
     if (appointment) {
       setClinicalNotes(appointment.clinicalNotes || '');
-      setSelectedStatus(appointment.status);
     }
   }, [appointment]);
 
+  useEffect(() => {
+    if (!issueStartDate) {
+      setIssueEndDate('');
+      return;
+    }
+
+    const start = new Date(issueStartDate);
+    if (Number.isNaN(start.getTime())) {
+      setIssueEndDate('');
+      return;
+    }
+
+    const end = new Date(start);
+    end.setFullYear(end.getFullYear() + 1);
+    setIssueEndDate(end.toISOString().split('T')[0]);
+  }, [issueStartDate]);
+
   const handleVerifyPDMP = async () => {
-    if (confirm('Are you sure you want to verify PDMP for this appointment?')) {
-      try {
-        await dispatch(verifyPDMP(params.id)).unwrap();
-        alert('PDMP verified successfully');
-      } catch (error: any) {
-        alert(error || 'Failed to verify PDMP');
-      }
+    try {
+      await dispatch(verifyPDMP(params.id)).unwrap();
+    } catch (error: any) {
+      alert(error || 'Failed to verify PDMP');
     }
   };
 
@@ -66,13 +83,31 @@ export default function AppointmentDetailsPage({ params }: { params: { id: strin
       alert('Please verify PDMP before filing certification');
       return;
     }
-    if (confirm('Are you sure you want to file the certification? This will mark the appointment as completed.')) {
-      try {
+
+    setShowCertificationConfirm(true);
+  };
+
+  const handleIssueMMJCard = async () => {
+    if (!issueStartDate || !issueEndDate) {
+      alert('Please provide both start and end date');
+      return;
+    }
+
+    if (issueEndDate < issueStartDate) {
+      alert('End date must be greater than or equal to start date');
+      return;
+    }
+
+    try {
+      if (!appointment?.certificationFiled) {
         await dispatch(fileCertification(params.id)).unwrap();
-        alert('Certification filed successfully');
-      } catch (error: any) {
-        alert(error || 'Failed to file certification');
       }
+
+      await dispatch(issueMMJCard({ id: params.id, startDate: issueStartDate, endDate: issueEndDate })).unwrap();
+      alert('Certification filed and MMJ card issued successfully');
+      setShowIssueCardModal(false);
+    } catch (error: any) {
+      alert(error || 'Failed to complete MMJ card issuance');
     }
   };
 
@@ -100,22 +135,30 @@ export default function AppointmentDetailsPage({ params }: { params: { id: strin
     }
   };
 
-  const handleStatusChange = async () => {
-    if (selectedStatus === appointment?.status) return;
-    try {
-      await dispatch(updateAppointmentStatus({ id: params.id, status: selectedStatus })).unwrap();
-      alert('Status updated successfully');
-    } catch (error: any) {
-      alert(error || 'Failed to update status');
-    }
-  };
-
   const formatDate = (dateString?: string) => {
     if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleDateString('en-US', {
       month: 'long',
       day: 'numeric',
       year: 'numeric',
+    });
+  };
+
+  const formatTime = (timeValue?: string) => {
+    if (!timeValue) return 'N/A';
+
+    const trimmed = String(timeValue).trim();
+    const timeMatch = trimmed.match(/^(\d{1,2}):(\d{2})$/);
+    if (!timeMatch) return trimmed;
+
+    const hours = Number(timeMatch[1]);
+    const minutes = Number(timeMatch[2]);
+    const date = new Date();
+    date.setHours(hours, minutes, 0, 0);
+    return date.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
     });
   };
 
@@ -177,6 +220,107 @@ export default function AppointmentDetailsPage({ params }: { params: { id: strin
 
   const hasIntakeForm = appointment?.intakeSubmitted;
   const hasDocuments = appointment?.documents && appointment.documents.length > 0;
+
+  const formatDateShort = (dateString?: string) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('en-US');
+  };
+
+  const formatCurrency = (value?: number) => {
+    if (typeof value !== 'number' || Number.isNaN(value)) return 'N/A';
+    return `$${value}`;
+  };
+
+  const getAppointmentTypeLabel = () => {
+    if (!appointment) return 'N/A';
+    if (typeof appointment.appointmentType === 'string') {
+      return 'N/A';
+    }
+    return appointment.appointmentType?.name || 'N/A';
+  };
+
+  const getAdjustedAmountLabel = () => {
+    if (!appointment) return 'N/A';
+    const amount = appointment.adjustedAmount ??
+      (typeof appointment.appointmentType === 'object' ? appointment.appointmentType?.price : undefined) ??
+      appointment.medicalCardType?.price;
+    return formatCurrency(amount);
+  };
+
+  const formatAsMDY = (dateString?: string) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return '';
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${month}-${day}-${year}`;
+  };
+
+  const parseMDYToISO = (value: string) => {
+    const normalized = value.trim();
+    const match = normalized.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+    if (!match) return null;
+
+    const month = Number(match[1]);
+    const day = Number(match[2]);
+    const year = Number(match[3]);
+
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+
+    const date = new Date(year, month - 1, day);
+    if (
+      date.getFullYear() !== year ||
+      date.getMonth() !== month - 1 ||
+      date.getDate() !== day
+    ) {
+      return null;
+    }
+
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  };
+
+  const handleOpenDatePicker = () => {
+    if (issueStartDatePickerRef.current?.showPicker) {
+      issueStartDatePickerRef.current.showPicker();
+      return;
+    }
+    issueStartDatePickerRef.current?.focus();
+  };
+
+  const parseAppointmentDateTime = () => {
+    if (!appointment?.scheduledDate) return null;
+
+    const scheduled = new Date(appointment.scheduledDate);
+    if (Number.isNaN(scheduled.getTime())) return null;
+
+    const rawTime = appointment?.scheduledTime;
+    if (!rawTime) return scheduled;
+
+    const timeValue = String(rawTime).trim();
+    const twelveHour = timeValue.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    const twentyFourHour = timeValue.match(/^(\d{1,2}):(\d{2})$/);
+
+    let hours = 0;
+    let minutes = 0;
+
+    if (twelveHour) {
+      hours = Number(twelveHour[1]) % 12;
+      minutes = Number(twelveHour[2]);
+      if (twelveHour[3].toUpperCase() === 'PM') {
+        hours += 12;
+      }
+    } else if (twentyFourHour) {
+      hours = Number(twentyFourHour[1]);
+      minutes = Number(twentyFourHour[2]);
+    }
+
+    scheduled.setHours(hours, minutes, 0, 0);
+    return scheduled;
+  };
+
+  const appointmentDateTime = parseAppointmentDateTime();
+  const isBeforeAppointmentDateTime = appointmentDateTime ? new Date() < appointmentDateTime : false;
 
   if (loading && !appointment) {
     return (
@@ -400,20 +544,7 @@ export default function AppointmentDetailsPage({ params }: { params: { id: strin
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">Appointment Type</label>
-                <p className="text-gray-900">
-                  {typeof appointment.appointmentType === 'string' 
-                    ? appointment.appointmentType 
-                    : appointment.appointmentType?.name || 'N/A'}
-                </p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1">Adjusted Amount</label>
-                <p className="text-gray-900">
-                  ${appointment.adjustedAmount || 
-                    (typeof appointment.appointmentType === 'object' && appointment.appointmentType?.price) || 
-                    appointment.medicalCardType?.price || 
-                    'N/A'}
-                </p>
+                <p className="text-gray-900">{getAppointmentTypeLabel()}</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">Date</label>
@@ -421,13 +552,13 @@ export default function AppointmentDetailsPage({ params }: { params: { id: strin
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">Time</label>
-                <p className="text-gray-900">{appointment.scheduledTime || 'N/A'}</p>
+                <p className="text-gray-900">{formatTime(appointment.scheduledTime)}</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">State</label>
                 <p className="text-gray-900">
                   <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800">
-                    {appointment.state}
+                    {appointment.stateName || appointment.state}
                   </span>
                 </p>
               </div>
@@ -448,7 +579,7 @@ export default function AppointmentDetailsPage({ params }: { params: { id: strin
                   type="checkbox"
                   checked={appointment.pdmpVerified}
                   onChange={handleVerifyPDMP}
-                  disabled={appointment.pdmpVerified}
+                  disabled={appointment.pdmpVerified || isBeforeAppointmentDateTime}
                   className="h-5 w-5 text-green-600 rounded focus:ring-green-500"
                 />
                 <label className="ml-3 text-gray-900 font-medium">PDMP Verified</label>
@@ -458,41 +589,25 @@ export default function AppointmentDetailsPage({ params }: { params: { id: strin
                   </span>
                 )}
               </div>
+              {isBeforeAppointmentDateTime && !appointment.pdmpVerified && (
+                <p className="text-sm text-orange-700">
+                  PDMP can be verified only after scheduled appointment date &amp; time.
+                </p>
+              )}
 
               <button
                 onClick={handleFileCertification}
-                disabled={!appointment.pdmpVerified || appointment.certificationFiled}
+                disabled={!appointment.pdmpVerified || appointment.mmjCardIssued}
                 className={`w-full md:w-auto px-6 py-3 rounded-lg font-medium ${
-                  appointment.certificationFiled
+                  appointment.mmjCardIssued
                     ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                     : appointment.pdmpVerified
                     ? 'bg-green-600 text-white hover:bg-green-700'
                     : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 }`}
               >
-                {appointment.certificationFiled ? 'Certification Filed ✓' : 'File Certification'}
+                {appointment.mmjCardIssued ? 'MMJ Card Issued ✓' : 'File Certification'}
               </button>
-
-              <div className="flex items-center gap-4">
-                <label className="text-gray-900 font-medium">Change Status:</label>
-                <select
-                  value={selectedStatus}
-                  onChange={(e) => setSelectedStatus(e.target.value)}
-                  className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
-                >
-                  <option value="scheduled">Scheduled</option>
-                  <option value="on-hold">On Hold</option>
-                  <option value="completed">Completed</option>
-                </select>
-                {selectedStatus !== appointment.status && (
-                  <button
-                    onClick={handleStatusChange}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
-                  >
-                    Update Status
-                  </button>
-                )}
-              </div>
             </div>
           </div>
 
@@ -506,14 +621,122 @@ export default function AppointmentDetailsPage({ params }: { params: { id: strin
               className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-green-500 min-h-[200px]"
             />
             <div className="mt-4">
-              <button
-                onClick={handleSaveClinicalNotes}
-                className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
-              >
-                Save Clinical Notes
-              </button>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={handleSaveClinicalNotes}
+                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+                >
+                  Save Clinical Notes
+                </button>
+              </div>
+              {appointment.mmjCardIssued && (
+                <p className="mt-3 text-sm text-gray-600">
+                  MMJ Card validity: {formatDate(appointment.mmjCardStartDate)} to {formatDate(appointment.mmjCardEndDate)}
+                </p>
+              )}
             </div>
           </div>
+
+          {showIssueCardModal && (
+            <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+                <h3 className="text-xl font-bold text-gray-900 mb-2">Issue MMJ Card</h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  Select MMJ card validity period to complete certification.
+                </p>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={formatAsMDY(issueStartDate)}
+                        onChange={(e) => {
+                          const parsedIso = parseMDYToISO(e.target.value);
+                          setIssueStartDate(parsedIso || '');
+                        }}
+                        placeholder="MM-DD-YYYY"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleOpenDatePicker}
+                        className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                        aria-label="Open calendar"
+                      >
+                        📅
+                      </button>
+                    </div>
+                    <input
+                      ref={issueStartDatePickerRef}
+                      type="date"
+                      value={issueStartDate}
+                      onChange={(e) => setIssueStartDate(e.target.value)}
+                      className="sr-only"
+                      tabIndex={-1}
+                    />
+                    <p className="mt-1 text-xs text-gray-500">Format: MM-DD-YYYY</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                    <input
+                      type="text"
+                      value={formatAsMDY(issueEndDate)}
+                      readOnly
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">Auto-filled: 1 year from start date ({formatDateShort(issueEndDate)})</p>
+                  </div>
+                </div>
+
+                <div className="mt-6 flex justify-end gap-3">
+                  <button
+                    onClick={() => setShowIssueCardModal(false)}
+                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 font-medium"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleIssueMMJCard}
+                    className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium"
+                  >
+                    Confirm & Issue
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showCertificationConfirm && (
+            <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+                <h3 className="text-xl font-bold text-gray-900 mb-2">Issue MMJ Card</h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  Are you sure you want to proceed with MMJ card issuance?
+                </p>
+                <div className="flex justify-end gap-3">
+                  <button
+                    onClick={() => setShowCertificationConfirm(false)}
+                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 font-medium"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      const today = new Date();
+                      setIssueStartDate(today.toISOString().split('T')[0]);
+                      setShowCertificationConfirm(false);
+                      setShowIssueCardModal(true);
+                    }}
+                    className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium"
+                  >
+                    Continue
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </DashboardLayout>

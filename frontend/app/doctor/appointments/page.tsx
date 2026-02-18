@@ -67,7 +67,15 @@ export default function DoctorAppointmentsPage() {
   };
 
   // Get unique states from appointments
-  const availableStates = Array.from(new Set(appointments.map((a: any) => a.state))).sort() as string[];
+  const stateMap = new Map<string, string>();
+  appointments.forEach((appointment: any) => {
+    if (!appointment?.state) return;
+    stateMap.set(appointment.state, appointment.stateName || appointment.state);
+  });
+
+  const availableStates = Array.from(stateMap.entries())
+    .map(([code, name]) => ({ code, name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   return (
     <DashboardLayout>
@@ -102,9 +110,9 @@ export default function DoctorAppointmentsPage() {
                 className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
               >
                 <option value="">Select State</option>
-                {availableStates.map((state: string) => (
-                  <option key={state} value={state}>
-                    {state}
+                {availableStates.map((state) => (
+                  <option key={state.code} value={state.code}>
+                    {state.name}
                   </option>
                 ))}
               </select>
@@ -222,7 +230,7 @@ export default function DoctorAppointmentsPage() {
                           </td>
                           <td className="px-6 py-4 text-sm">
                             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-                              {appointment.state}
+                              {appointment.stateName || appointment.state}
                             </span>
                           </td>
                           <td className="px-6 py-4 text-sm text-gray-600">

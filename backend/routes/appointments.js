@@ -928,7 +928,8 @@ router.get('/:id', auth, async (req, res) => {
       .populate('patient_id', 'name email phone prn dateOfBirth guardianName guardianEmail guardianPhone')
       .populate('doctor_id', 'name email phone')
       .populate('appointmentType', 'name description price duration cardValidityMonths')
-      .populate('payment_id');
+      .populate('payment_id')
+      .populate('documentRequests.requestedBy', 'name email');
 
     if (!appointment) {
       return res.status(404).json({ message: 'Appointment not found' });
@@ -1051,6 +1052,17 @@ router.post('/:id/send-email', [
     };
 
     await sendTemplateEmail(appointment.patient_id, template, emailData);
+
+    if (template === 'request-document' && appointment.documentRequests?.length) {
+      const pendingRequest = appointment.documentRequests
+        .filter((request) => request.status === 'pending')
+        .sort((a, b) => new Date(b.requestedAt || 0) - new Date(a.requestedAt || 0))[0];
+
+      if (pendingRequest) {
+        pendingRequest.status = 'sent';
+        await appointment.save();
+      }
+    }
 
     // Create notification
     await Notification.create({
