@@ -645,6 +645,16 @@ router.post('/', [
       await sendAdminApprovalRequiredNotifications({ appointmentInput: appointment });
     }
 
+    try {
+      await sendTemplateEmail(req.user, 'payment-completed', {
+        patientName: req.user.name,
+        appointmentId: appointment._id,
+        amount: `$${amount}`
+      });
+    } catch (emailError) {
+      console.error('Failed to send payment completion email:', emailError);
+    }
+
     res.status(201).json({
       message: 'Appointment created successfully',
       appointment,
@@ -1051,18 +1061,22 @@ router.post('/:id/send-email', [
       documentRequest: customMessage || 'Additional documents required'
     };
 
-    await sendTemplateEmail(appointment.patient_id, template, emailData);
+    if (template === 'request-document') {
+      appointment.documentRequests.push({
+        requestedBy: req.user._id,
+        message: customMessage || 'Additional documents required',
+        status: 'sent',
+        requestedAt: new Date()
+      });
 
-    if (template === 'request-document' && appointment.documentRequests?.length) {
-      const pendingRequest = appointment.documentRequests
-        .filter((request) => request.status === 'pending')
-        .sort((a, b) => new Date(b.requestedAt || 0) - new Date(a.requestedAt || 0))[0];
-
-      if (pendingRequest) {
-        pendingRequest.status = 'sent';
-        await appointment.save();
+      if (appointment.status !== 'completed' && appointment.status !== 'cancelled' && appointment.status !== 'canceled') {
+        appointment.status = 'on-hold';
       }
+
+      await appointment.save();
     }
+
+    await sendTemplateEmail(appointment.patient_id, template, emailData);
 
     // Create notification
     await Notification.create({

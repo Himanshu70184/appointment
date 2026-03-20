@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { usePathname, useRouter } from 'next/navigation'
 import { getCurrentUser } from '@/store/slices/authSlice'
@@ -19,44 +19,51 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, isAuthenticated, loading } = useSelector((state: RootState) => state.auth)
   const [isInitializing, setIsInitializing] = useState(true)
   const [isCheckingIntake, setIsCheckingIntake] = useState(false)
+  const initRef = useRef(false)
 
   useEffect(() => {
+    // Run only once on mount - initRef ensures this even if hook is called multiple times
+    // Empty dependency array is intentional - we only want to auth check once per mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (initRef.current) return
+    initRef.current = true
+
     const initAuth = async () => {
       const token = Cookies.get('token')
       
-      // If we have a token but no user, fetch the current user
-      if (token && !user && !loading) {
+      // If we have a token, try to fetch the current user
+      if (token) {
         try {
           await dispatch(getCurrentUser()).unwrap()
-        } catch (error) {
-          // Token is invalid, will be cleared by API interceptor
+        } catch (error: any) {
           console.error('Failed to fetch current user:', error)
+          // Clear invalid token
+          Cookies.remove('token')
         }
       }
       
+      // Mark as done initializing
       setIsInitializing(false)
     }
 
+    // Run immediately
     initAuth()
-  }, [dispatch, user, loading])
+  }, [])
 
   useEffect(() => {
-    // Don't do anything while initializing
-    if (isInitializing || loading) return
+    // Don't run while initializing
+    if (isInitializing) return
 
     const isPublicRoute = PUBLIC_ROUTES.some(route => pathname?.startsWith(route))
 
-    // Only redirect to login if definitely not authenticated
-    if (!isAuthenticated && !loading && !isPublicRoute) {
-      console.log('AuthGuard: Redirecting to login - not authenticated')
+    // Redirect to login if not authenticated and not on public route
+    if (!isAuthenticated && !isPublicRoute) {
       router.push('/login')
       return
     }
 
-    // Only redirect away from public routes if fully authenticated with user data
+    // Redirect away from public routes if authenticated
     if (isAuthenticated && user && isPublicRoute && pathname !== '/verify-email' && pathname !== '/patient/book') {
-      console.log('AuthGuard: Redirecting from public route to dashboard')
-      // Determine redirect based on user role
       if (user.role_id === 2) {
         router.push('/doctor/dashboard')
       } else if (user.role_id === 3) {
@@ -65,7 +72,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
         router.push('/dashboard')
       }
     }
-  }, [isAuthenticated, isInitializing, pathname, user, loading])
+  }, [isInitializing, isAuthenticated, user, pathname, router])
 
   useEffect(() => {
     if (
@@ -121,9 +128,9 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     checkIntakePending()
   }, [isAuthenticated, isInitializing, loading, pathname, router, user])
 
-  // Show loading spinner while initializing or loading
-  if (isInitializing || loading) {
-    return <LoadingSpinner fullScreen text="Authenticating..." />
+  // Show loading spinner only during initial auth check
+  if (isInitializing) {
+    return <LoadingSpinner fullScreen text="Loading..." />
   }
 
   return <>{children}</>

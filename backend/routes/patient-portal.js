@@ -653,6 +653,18 @@ router.post('/book-appointment', [
       appointment.doctor_id = null;
       await appointment.save();
 
+      try {
+        await sendTemplateEmail(user, 'patient-appointment-on-hold', {
+          patientName: user.name,
+          appointmentDate: new Date(scheduledDate).toLocaleDateString(),
+          appointmentTime: scheduledTime,
+          reason: 'The selected time was booked by another patient right after payment. Please choose a new slot.',
+          appointmentId: appointment._id
+        });
+      } catch (emailError) {
+        console.error('Failed to send on-hold email:', emailError);
+      }
+
       const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
         expiresIn: process.env.JWT_EXPIRES_IN || '7d'
       });
@@ -675,12 +687,13 @@ router.post('/book-appointment', [
     try {
       await sendTemplateEmail(
         user.email,
-        'appointment-confirmation',
+        'payment-completed',
         {
           patientName: user.name,
           appointmentDate: new Date(scheduledDate).toLocaleDateString(),
           appointmentTime: scheduledTime,
-          appointmentId: appointment._id
+          appointmentId: appointment._id,
+          amount: `$${amount}`
         }
       );
     } catch (emailError) {

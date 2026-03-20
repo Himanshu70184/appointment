@@ -6,7 +6,7 @@ const Doctor = require('../models/Doctor');
 const State = require('../models/State');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
-const { sendAppointmentCompletedNotifications } = require('../utils/notifications');
+const { sendAppointmentCompletedNotifications, sendAppointmentOnHoldNotifications } = require('../utils/notifications');
 
 const router = express.Router();
 
@@ -430,6 +430,12 @@ router.post('/appointments/:id/request-documents', [
     }
     await appointment.save();
 
+    await sendAppointmentOnHoldNotifications({
+      appointmentInput: appointment,
+      reason: req.body.message,
+      initiatedByRole: 'doctor'
+    });
+
     // Create notification for admin and staff
     const adminAndStaffUsers = await User.find({ role_id: { $in: [1, 4] } });
     for (const user of adminAndStaffUsers) {
@@ -487,6 +493,12 @@ router.put('/appointments/:id/status', [
         appointmentInput: appointment,
         completedByRole: 'doctor',
         completedByName: req.user.name || req.user.email || ''
+      });
+    } else if (newStatus === 'on-hold') {
+      await sendAppointmentOnHoldNotifications({
+        appointmentInput: appointment,
+        reason: `Status updated from ${oldStatus} to on-hold`,
+        initiatedByRole: 'doctor'
       });
     } else {
       // Create notification for patient

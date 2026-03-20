@@ -12,6 +12,52 @@ import api from '@/lib/api'
 // Utility to get user id from user object
 const getUserId = (user: any) => user?._id || user?.id || user?.user_id || null;
 
+// Auto-save debounce hook
+const useAutoSaveNotes = (notes: string, appointmentId: string, onStatusChange: (status: string) => void) => {
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  useEffect(() => {
+    if (!notes.trim() || !appointmentId) return
+
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+
+    onStatusChange('saving')
+
+    timeoutRef.current = setTimeout(async () => {
+      try {
+        const apiUrl = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
+          ? `http://${window.location.hostname}:5000`
+          : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
+
+        const token = document.cookie.split('; ').find(row => row.startsWith('token='))?.split('=')[1]
+        
+        const response = await fetch(`${apiUrl}/api/appointments/${appointmentId}/notes`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ adminNotes: notes })
+        })
+
+        if (response.ok) {
+          onStatusChange('saved')
+          setTimeout(() => onStatusChange(''), 2000)
+        } else {
+          const errorData = await response.json()
+          onStatusChange(`error: ${errorData.message || 'Failed to save'}`)
+        }
+      } catch (error: any) {
+        onStatusChange(`error: ${error.message || 'Save failed'}`)
+      }
+    }, 1500)
+
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    }
+  }, [notes, appointmentId, onStatusChange])
+}
+
 export default function AppointmentDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -25,6 +71,7 @@ export default function AppointmentDetailPage() {
   const currentUser = useSelector((state: RootState) => state.auth.user)
   const [activeTab, setActiveTab] = useState<'emailLogs' | 'tasks' | 'notes'>('notes')
   const [notes, setNotes] = useState('')
+  const [notesSaveStatus, setNotesSaveStatus] = useState('')
   const [documentRequest, setDocumentRequest] = useState('')
   const [showIntakeDetails, setShowIntakeDetails] = useState(false)
   const [emailLogs, setEmailLogs] = useState<Array<{ title: string; message: string; createdAt: string }>>([])
@@ -71,6 +118,9 @@ export default function AppointmentDetailPage() {
       setNotes(currentAppointment.clinicalNotes)
     }
   }, [currentAppointment])
+
+  // Auto-save notes
+  useAutoSaveNotes(notes, appointmentId, setNotesSaveStatus)
 
   useEffect(() => {
     if (typeof currentAppointment?.patient_id === 'object' && currentAppointment.patient_id) {
@@ -181,39 +231,6 @@ export default function AppointmentDetailPage() {
       }
     } catch (error: any) {
       alert(error.response?.data?.message || 'Failed to send document request email')
-    }
-  }
-
-  const handleSaveNotes = async () => {
-    if (!notes.trim()) {
-      alert('Please enter some notes before saving')
-      return
-    }
-    try {
-      const token = document.cookie.split('; ').find(row => row.startsWith('token='))?.split('=')[1]
-      const apiUrl = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
-        ? `http://${window.location.hostname}:5000`
-        : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
-      
-      const response = await fetch(`${apiUrl}/api/appointments/${appointmentId}/notes`, {
-        method: 'PUT',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ adminNotes: notes })
-      })
-      if (response.ok) {
-        alert('Notes saved successfully')
-        // Refresh appointment data
-        dispatch(getAppointment(appointmentId))
-      } else {
-        const errorData = await response.json()
-        throw new Error(errorData.message || 'Failed to save notes')
-      }
-    } catch (error) {
-      console.error('Error saving notes:', error)
-      alert('Failed to save notes. Please try again.')
     }
   }
 
@@ -824,22 +841,28 @@ export default function AppointmentDetailPage() {
 
                   {activeTab === 'notes' && (
                     <div>
-                      <label className="text-sm font-medium text-gray-700 mb-2 block">Notes</label>
+                      <label className="text-sm font-medium text-gray-700 mb-2 block">
+                        Notes
+                        <span className="ml-2 text-xs font-normal">
+                          {notesSaveStatus === 'saving' && (
+                            <span className="text-blue-600">💾 Saving...</span>
+                          )}
+                          {notesSaveStatus === 'saved' && (
+                            <span className="text-green-600">✓ Saved</span>
+                          )}
+                          {notesSaveStatus.startsWith('error') && (
+                            <span className="text-red-600">{notesSaveStatus}</span>
+                          )}
+                        </span>
+                      </label>
                       <textarea
                         value={notes}
                         onChange={(e) => setNotes(e.target.value)}
                         className="w-full px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         rows={6}
-                        placeholder="Enter your notes here..."
+                        placeholder="Enter your notes here... (auto-saves as you type)"
                       />
-                      <div className="mt-4 flex justify-end">
-                        <button
-                          onClick={handleSaveNotes}
-                          className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                        >
-                          Save Notes
-                        </button>
-                      </div>
+                      <p className="mt-2 text-xs text-gray-500">💡 Notes auto-save automatically as you type</p>
                     </div>
                   )}
 

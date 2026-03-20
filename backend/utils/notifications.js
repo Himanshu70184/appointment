@@ -2,6 +2,7 @@ const Notification = require('../models/Notification');
 const Appointment = require('../models/Appointment');
 const User = require('../models/User');
 const Task = require('../models/Task');
+const { sendTemplateEmail } = require('./email');
 
 const formatDisplayName = (user) => {
   if (!user) return 'Patient';
@@ -68,6 +69,21 @@ const capitalize = (value) => {
   return value.charAt(0).toUpperCase() + value.slice(1);
 };
 
+const sendAdminStaffTemplateEmails = async ({ users = [], template, data = {} } = {}) => {
+  const recipients = (users || []).filter((user) => user && user.email);
+  if (!recipients.length || !template) {
+    return;
+  }
+
+  await Promise.all(
+    recipients.map((user) =>
+      sendTemplateEmail(user, template, data).catch((error) => {
+        console.error(`Failed to send ${template} email to ${user.email}:`, error.message);
+      })
+    )
+  );
+};
+
 const sendAppointmentScheduledNotifications = async (appointmentInput) => {
   try {
     const appointment =
@@ -84,9 +100,9 @@ const sendAppointmentScheduledNotifications = async (appointmentInput) => {
     const hasIntake = Boolean(appointment.intakeSubmitted || appointment.intakeForm);
 
     const [patientUser, doctorUser, adminStaffUsers] = await Promise.all([
-      patientId ? User.findById(patientId).select('firstName lastName name role_id') : null,
+      patientId ? User.findById(patientId).select('firstName lastName name role_id email') : null,
       doctorId ? User.findById(doctorId).select('firstName lastName name role_id') : null,
-      User.find({ role_id: { $in: [1, 4] } }).select('_id role_id firstName lastName name')
+      User.find({ role_id: { $in: [1, 4] } }).select('_id role_id firstName lastName name email')
     ]);
 
     const { dateLabel, timeLabel } = formatScheduleWindow(appointment);
@@ -130,6 +146,32 @@ const sendAppointmentScheduledNotifications = async (appointmentInput) => {
     if (notifications.length) {
       await Notification.insertMany(notifications);
     }
+
+    await sendAdminStaffTemplateEmails({
+      users: adminStaffUsers,
+      template: 'admin-staff-appointment-scheduled',
+      data: {
+        patientName,
+        appointmentDate: dateLabel,
+        appointmentTime: timeLabel,
+        state: appointment.state,
+        doctorName: doctorUser ? doctorName : 'Unassigned',
+        appointmentId: appointment._id
+      }
+    });
+
+    if (patientUser && patientUser.email) {
+      await sendTemplateEmail(patientUser, 'patient-appointment-scheduled', {
+        patientName,
+        appointmentDate: dateLabel,
+        appointmentTime: timeLabel,
+        state: appointment.state,
+        doctorName: doctorUser ? doctorName : 'Unassigned',
+        appointmentId: appointment._id
+      }).catch((error) => {
+        console.error(`Failed to send patient scheduled email to ${patientUser.email}:`, error.message);
+      });
+    }
   } catch (error) {
     console.error('Failed to dispatch scheduling notifications:', error);
   }
@@ -155,7 +197,7 @@ const sendAppointmentCancellationNotifications = async ({
     const doctorId = resolveUserId(appointment.doctor_id);
 
     const [patientUser, doctorUser, adminStaffUsers] = await Promise.all([
-      patientId ? User.findById(patientId).select('firstName lastName name role_id') : null,
+      patientId ? User.findById(patientId).select('firstName lastName name role_id email') : null,
       doctorId ? User.findById(doctorId).select('firstName lastName name role_id') : null,
       User.find({ role_id: { $in: [1, 4] } }).select('_id role_id firstName lastName name')
     ]);
@@ -214,8 +256,64 @@ const sendAppointmentCancellationNotifications = async ({
     if (notifications.length) {
       await Notification.insertMany(notifications);
     }
+
+    if (patientUser && patientUser.email) {
+      await sendTemplateEmail(patientUser, 'patient-appointment-cancelled', {
+        patientName,
+        appointmentDate: dateLabel,
+        appointmentTime: timeLabel,
+        cancelledBy: initiatorLabel || 'System',
+        reason: reasonText,
+        appointmentId: appointment._id
+      }).catch((error) => {
+        console.error(`Failed to send patient cancelled email to ${patientUser.email}:`, error.message);
+      });
+    }
   } catch (error) {
     console.error('Failed to dispatch cancellation notifications:', error);
+  }
+};
+
+const sendAppointmentOnHoldNotifications = async ({
+  appointmentInput,
+  reason,
+  initiatedByRole = 'system'
+} = {}) => {
+  try {
+    const appointment =
+      typeof appointmentInput === 'object' && appointmentInput !== null
+        ? appointmentInput
+        : await Appointment.findById(appointmentInput);
+
+    if (!appointment) {
+      return;
+    }
+
+    const patientId = resolveUserId(appointment.patient_id);
+    const patientUser = patientId
+      ? await User.findById(patientId).select('firstName lastName name role_id email')
+      : null;
+
+    if (!patientUser || !patientUser.email) {
+      return;
+    }
+
+    const { dateLabel, timeLabel } = formatScheduleWindow(appointment);
+    const patientName = formatDisplayName(patientUser);
+    const initiatorLabel = capitalize(normalizeInitiatorRole(initiatedByRole));
+    const reasonText = formatReason(reason);
+
+    await sendTemplateEmail(patientUser, 'patient-appointment-on-hold', {
+      patientName,
+      appointmentDate: dateLabel,
+      appointmentTime: timeLabel,
+      reason: initiatorLabel ? `${reasonText} (Updated by ${initiatorLabel})` : reasonText,
+      appointmentId: appointment._id
+    }).catch((error) => {
+      console.error(`Failed to send patient on-hold email to ${patientUser.email}:`, error.message);
+    });
+  } catch (error) {
+    console.error('Failed to dispatch on-hold notifications:', error);
   }
 };
 
@@ -289,8 +387,8 @@ const sendAdminApprovalRequiredNotifications = async ({ appointmentInput } = {})
     const patientId = resolveUserId(appointment.patient_id);
 
     const [patientUser, adminStaffUsers] = await Promise.all([
-      patientId ? User.findById(patientId).select('firstName lastName name role_id') : null,
-      User.find({ role_id: { $in: [1, 4] } }).select('_id role_id firstName lastName name')
+      patientId ? User.findById(patientId).select('firstName lastName name role_id email') : null,
+      User.find({ role_id: { $in: [1, 4] } }).select('_id role_id firstName lastName name email')
     ]);
 
     if (!patientUser && (!adminStaffUsers || !adminStaffUsers.length)) {
@@ -326,6 +424,30 @@ const sendAdminApprovalRequiredNotifications = async ({ appointmentInput } = {})
 
     if (notifications.length) {
       await Notification.insertMany(notifications);
+    }
+
+    await sendAdminStaffTemplateEmails({
+      users: adminStaffUsers,
+      template: 'admin-staff-approval-required',
+      data: {
+        patientName,
+        appointmentDate: dateLabel,
+        appointmentTime: timeLabel,
+        state: appointment.state,
+        appointmentId: appointment._id
+      }
+    });
+
+    if (patientUser && patientUser.email) {
+      await sendTemplateEmail(patientUser, 'patient-appointment-under-review', {
+        patientName,
+        appointmentDate: dateLabel,
+        appointmentTime: timeLabel,
+        state: appointment.state,
+        appointmentId: appointment._id
+      }).catch((error) => {
+        console.error(`Failed to send patient under-review email to ${patientUser.email}:`, error.message);
+      });
     }
   } catch (error) {
     console.error('Failed to dispatch admin approval notifications:', error);
@@ -403,6 +525,19 @@ const sendAppointmentCompletedNotifications = async ({
     if (notifications.length) {
       await Notification.insertMany(notifications);
     }
+
+    if (patientUser && patientUser.email) {
+      await sendTemplateEmail(patientUser, 'patient-appointment-completed', {
+        patientName,
+        appointmentDate: dateLabel,
+        appointmentTime: timeLabel,
+        doctorName: doctorUser ? doctorName : 'Unassigned',
+        appointmentId: appointment._id,
+        reviewUrl: process.env.GMB_REVIEW_URL || process.env.GOOGLE_REVIEW_URL
+      }).catch((error) => {
+        console.error(`Failed to send patient completed email to ${patientUser.email}:`, error.message);
+      });
+    }
   } catch (error) {
     console.error('Failed to dispatch completion notifications:', error);
   }
@@ -431,10 +566,10 @@ const sendAppointmentRescheduleNotifications = async ({
     const normalizedRole = normalizeInitiatorRole(rescheduleByRole);
 
     const [patientUser, doctorUser, previousDoctorUser, adminStaffUsers] = await Promise.all([
-      patientId ? User.findById(patientId).select('firstName lastName name role_id') : null,
+      patientId ? User.findById(patientId).select('firstName lastName name role_id email') : null,
       doctorId ? User.findById(doctorId).select('firstName lastName name role_id') : null,
       previousDoctorId ? User.findById(previousDoctorId).select('firstName lastName name role_id') : null,
-      User.find({ role_id: { $in: [1, 4] } }).select('_id role_id firstName lastName name')
+      User.find({ role_id: { $in: [1, 4] } }).select('_id role_id firstName lastName name email')
     ]);
 
     const { dateLabel, timeLabel } = formatScheduleWindow(appointment);
@@ -511,6 +646,35 @@ const sendAppointmentRescheduleNotifications = async ({
 
     if (notifications.length) {
       await Notification.insertMany(notifications);
+    }
+
+    await sendAdminStaffTemplateEmails({
+      users: adminStaffUsers,
+      template: 'admin-staff-appointment-rescheduled',
+      data: {
+        patientName,
+        previousDate: previousDateLabel,
+        previousTime: previousTimeLabel,
+        appointmentDate: dateLabel,
+        appointmentTime: timeLabel,
+        state: appointment.state,
+        actorName: actorLabel || 'System',
+        appointmentId: appointment._id
+      }
+    });
+
+    if (patientUser && patientUser.email) {
+      await sendTemplateEmail(patientUser, 'patient-appointment-rescheduled', {
+        patientName,
+        previousDate: previousDateLabel,
+        previousTime: previousTimeLabel,
+        appointmentDate: dateLabel,
+        appointmentTime: timeLabel,
+        actorName: actorLabel || 'System',
+        appointmentId: appointment._id
+      }).catch((error) => {
+        console.error(`Failed to send patient rescheduled email to ${patientUser.email}:`, error.message);
+      });
     }
   } catch (error) {
     console.error('Failed to dispatch reschedule notifications:', error);
@@ -597,6 +761,7 @@ const sendTaskCompletedNotification = async ({
  module.exports = {
    sendAppointmentScheduledNotifications,
    sendAppointmentCancellationNotifications,
+  sendAppointmentOnHoldNotifications,
    sendPendingIntakeNotifications,
    sendAppointmentCompletedNotifications,
    sendAdminApprovalRequiredNotifications,

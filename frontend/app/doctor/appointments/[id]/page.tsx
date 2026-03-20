@@ -19,6 +19,52 @@ import { getSubmissionByAppointment, clearError as clearIntakeError } from '@/st
 import { AppDispatch } from '@/store/store';
 import DashboardLayout from '@/components/DashboardLayout';
 
+// Auto-save debounce hook for clinical notes
+const useAutoSaveClinicalNotes = (clinicalNotes: string, appointmentId: string, onStatusChange: (status: string) => void) => {
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    if (!clinicalNotes.trim() || !appointmentId) return;
+
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+
+    onStatusChange('saving');
+
+    timeoutRef.current = setTimeout(async () => {
+      try {
+        const apiUrl = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1'
+          ? `http://${window.location.hostname}:5000`
+          : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+
+        const token = document.cookie.split('; ').find(row => row.startsWith('token='))?.split('=')[1];
+        
+        const response = await fetch(`${apiUrl}/api/doctor-portal/appointments/${appointmentId}/clinical-notes`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ clinicalNotes: clinicalNotes })
+        });
+
+        if (response.ok) {
+          onStatusChange('saved');
+          setTimeout(() => onStatusChange(''), 2000);
+        } else {
+          const errorData = await response.json();
+          onStatusChange(`error: ${errorData.message || 'Failed to save'}`);
+        }
+      } catch (error: any) {
+        onStatusChange(`error: ${error.message || 'Save failed'}`);
+      }
+    }, 1500);
+
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, [clinicalNotes, appointmentId, onStatusChange]);
+};
+
 export default function AppointmentDetailsPage({ params }: { params: { id: string } }) {
   const dispatch = useDispatch<AppDispatch>();
   const router = useRouter();
@@ -30,6 +76,7 @@ export default function AppointmentDetailsPage({ params }: { params: { id: strin
   );
 
   const [clinicalNotes, setClinicalNotes] = useState('');
+  const [clinicalNotesSaveStatus, setClinicalNotesSaveStatus] = useState('');
   const [documentRequestMessage, setDocumentRequestMessage] = useState('');
   const [showDocumentRequest, setShowDocumentRequest] = useState(false);
   const [showIntakeDetails, setShowIntakeDetails] = useState(false);
@@ -52,6 +99,9 @@ export default function AppointmentDetailsPage({ params }: { params: { id: strin
       setClinicalNotes(appointment.clinicalNotes || '');
     }
   }, [appointment]);
+
+  // Auto-save clinical notes
+  useAutoSaveClinicalNotes(clinicalNotes, params.id, setClinicalNotesSaveStatus);
 
   useEffect(() => {
     if (!issueStartDate) {
@@ -114,9 +164,8 @@ export default function AppointmentDetailsPage({ params }: { params: { id: strin
   const handleSaveClinicalNotes = async () => {
     try {
       await dispatch(saveClinicalNotes({ id: params.id, clinicalNotes })).unwrap();
-      alert('Clinical notes saved successfully');
     } catch (error: any) {
-      alert(error || 'Failed to save clinical notes');
+      // Silent fallback - auto-save will handle it
     }
   };
 
@@ -613,28 +662,32 @@ export default function AppointmentDetailsPage({ params }: { params: { id: strin
 
           {/* Clinical Notes */}
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Clinical Notes</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">
+              Clinical Notes
+              <span className="ml-2 text-xs font-normal">
+                {clinicalNotesSaveStatus === 'saving' && (
+                  <span className="text-blue-600">💾 Saving...</span>
+                )}
+                {clinicalNotesSaveStatus === 'saved' && (
+                  <span className="text-green-600">✓ Saved</span>
+                )}
+                {clinicalNotesSaveStatus.startsWith('error') && (
+                  <span className="text-red-600">{clinicalNotesSaveStatus}</span>
+                )}
+              </span>
+            </h2>
             <textarea
               value={clinicalNotes}
               onChange={(e) => setClinicalNotes(e.target.value)}
-              placeholder="Enter your clinical observations and notes here..."
+              placeholder="Enter your clinical observations and notes here... (auto-saves as you type)"
               className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-green-500 min-h-[200px]"
             />
-            <div className="mt-4">
-              <div className="flex flex-wrap gap-3">
-                <button
-                  onClick={handleSaveClinicalNotes}
-                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
-                >
-                  Save Clinical Notes
-                </button>
-              </div>
-              {appointment.mmjCardIssued && (
-                <p className="mt-3 text-sm text-gray-600">
-                  MMJ Card validity: {formatDate(appointment.mmjCardStartDate)} to {formatDate(appointment.mmjCardEndDate)}
-                </p>
-              )}
-            </div>
+            <p className="mt-2 text-xs text-gray-500">💡 Notes auto-save automatically as you type</p>
+            {appointment.mmjCardIssued && (
+              <p className="mt-3 text-sm text-gray-600">
+                MMJ Card validity: {formatDate(appointment.mmjCardStartDate)} to {formatDate(appointment.mmjCardEndDate)}
+              </p>
+            )}
           </div>
 
           {showIssueCardModal && (
